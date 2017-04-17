@@ -31,20 +31,17 @@ def CnnModel(input_shape):
     """
     our_model = Sequential()
     print(input_shape)
-    our_model.add(Conv2D(64, (5, 5), padding='same', activation='relu', input_shape=input_shape))
+    our_model.add(Conv2D(128, (5, 5), padding='same', activation='relu', input_shape=input_shape))
     our_model.add(MaxPooling2D(pool_size=(2, 2)))
-    our_model.add(Conv2D(128, (5, 5), padding='same', activation='relu'))
+    our_model.add(Conv2D(256, (5, 5), padding='same', activation='relu'))
     our_model.add(MaxPooling2D(pool_size=(2, 2)))
-    our_model.add(Conv2D(128, (5, 5), padding='same', activation='relu'))
-    our_model.add(MaxPooling2D(pool_size=(2, 2)))
-    our_model.add(Conv2D(64, (3, 3), padding='same', activation='relu'))
-    our_model.add(MaxPooling2D(pool_size=(2, 2)))
+    our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
     our_model.add(Flatten())
-    our_model.add(Dense(512, activation='relu'))
+    our_model.add(Dense(256, activation='relu'))
     # our_model.add(Dropout(0.3))
-    our_model.add(Dense(64, activation='relu'))
-    our_model.add(Dropout(0.3))
-    our_model.add(Dense(1))
+    our_model.add(Dense(256, activation='relu'))
+    our_model.add(Dropout(0.5))
+    our_model.add(Dense(1, activation='relu'))
     our_model.compile(loss='mean_squared_error',
                       optimizer='adam')
     return our_model
@@ -95,7 +92,7 @@ def RnnModel(input_shape, n_channels=256, rnn_unit=GRU, deep_level=12):
     return our_model
 
 
-def ConvLstmModel(input_shape, deep_level=8, filters=128):
+def ConvLstmModel(input_shape, deep_level=5, filters=64):
     """
     convolutional LSTM model
     deep_level: number of levels of conv lstm
@@ -105,7 +102,7 @@ def ConvLstmModel(input_shape, deep_level=8, filters=128):
                              input_shape=input_shape, padding='same',
                              return_sequences=True))
     our_model.add(BatchNormalization())
-    for _ in range(deep_level - 1):
+    for _ in range(deep_level - 2):
         our_model.add(ConvLSTM2D(filters=filters, kernel_size=(3, 3),
                                  padding='same',
                                  return_sequences=True))
@@ -113,11 +110,11 @@ def ConvLstmModel(input_shape, deep_level=8, filters=128):
     our_model.add(ConvLSTM2D(filters=filters, kernel_size=(3, 3),
                              padding='same',
                              return_sequences=False))
-    # our_model.add(Conv3D(filters=2, kernel_size=(3, 3, 3),
-    #                      activation='relu', padding='same'))
+#    our_model.add(Conv3D(filters=input_shape[-1], kernel_size=(3, 3, 3),
+#                         activation='relu', padding='same'))
     our_model.add(Flatten())
     our_model.add(Dense(128, activation='relu'))
-    our_model.add(Dropout(0.2))
+    our_model.add(Dropout(0.5))
     our_model.add(Dense(1, activation='relu'))
     our_model.compile(loss='mean_squared_error', optimizer='adadelta')
 
@@ -598,9 +595,9 @@ if __name__ == "__main__":
     np.random.seed(712)
     backend.set_image_data_format('channels_last')  # explicitly set the channels are in the first dimenstion
 
-    sz_t_span = [14, 13, 12, 11, 10]
-    sz_height_span = [0, 1, ]
-    sz_image_size = 15
+    sz_t_span = [14, 13, 12, 11, ]
+    sz_height_span = [1, ]
+    sz_image_size = 33
     sz_downsample_size = 3
 
     # handcraft_features_training(t_span, height_span)
@@ -640,8 +637,11 @@ if __name__ == "__main__":
     # load_and_test_avg_rf_model(t_span, height_span, image_size, downsample_size, "20170410_3")
     # load_and_test_cnn_model(t_span, height_span, image_size, downsample_size, "20170411_resnet")
 
-    # =======3============ following are some validation results ==========================
+    # =================== following are some validation results ==========================
     # global avg - 15.85
-    # [14 13 12]512 1] 21 rf - 14.5
-    # [14 13 12] [0 2] 21 gbr downsample - 14.2
+    # [14 13 12] [0 1] 21 rf - 14.5
+    # [14 13 12] [0 1] 21 gbr downsample - 14.2
     # [14] [0 1] 21 rf - 14.0
+
+    # ==================== fowling are neural network structures for reference ===================
+    # (FAIL) input: [14 13 12 11] [1] 33*33*1 downsample-3 convLSTM (filters=64, deep_level=5, dropout=0.5)   # a larger network will be out of memory
