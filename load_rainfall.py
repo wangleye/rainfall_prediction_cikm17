@@ -54,7 +54,7 @@ def load_training_data(t, height_span, img_size, downsample_size=1, limit=NUM_TR
                 if downsample_size > 1:
                     rec_x = block_reduce(image=rec_x, block_size=(downsample_size, downsample_size), func=np.max)
                 idx_low = int(rec_x.shape[0] / 2) - int(img_size / 2)
-                idx_high = int(rec_x.shape[0] / 2) + int(img_size / 2) + 1
+                idx_high = int(rec_x.shape[0] / 2) + int((img_size + 1) / 2)
                 train_Y[i] = record['rainfall']
                 rec_x = rec_x[idx_low:idx_high, idx_low:idx_high]
                 X.append(rec_x)
