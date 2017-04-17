@@ -3,11 +3,11 @@ Predict rainfall for the CIKM 2017 Competition
 """
 import numpy as np
 from keras.models import Sequential, load_model
-from keras import backend, optimizers
+from keras import backend
 from keras.layers.core import Dense, Dropout, Flatten
 from keras.layers.pooling import MaxPooling2D
 from keras.layers.convolutional_recurrent import ConvLSTM2D
-from keras.layers.recurrent import SimpleRNN, GRU
+from keras.layers.recurrent import GRU
 from keras.layers.convolutional import Conv2D, Conv3D
 from keras.layers.normalization import BatchNormalization
 from keras.callbacks import EarlyStopping
@@ -63,7 +63,7 @@ def ResModel(input_shape, n_channels=64):
     kernel_size = (3, 3)
     # build first layer
     our_model.add(Conv2D(n_channels, (3, 3), activation='relu', input_shape=input_shape))
-    for i in range(num_res_clocks):
+    for _ in range(num_res_clocks):
         our_model.add(building_residual_block((input_shape[0], input_shape[1], n_channels),
                                               n_channels, kernel_size))
     our_model.add(Conv2D(2, (3, 3), activation='relu', input_shape=input_shape))
@@ -82,7 +82,7 @@ def RnnModel(input_shape, n_channels=256, rnn_unit=GRU, deep_level=12):
     our_model = Sequential()
     our_model.add(rnn_unit(units=n_channels, input_shape=input_shape, activation='relu', return_sequences=True))
     our_model.add(Dense(n_channels, activation='relu'))
-    for i in range(deep_level - 2):
+    for _ in range(deep_level - 2):
         our_model.add(rnn_unit(units=n_channels, activation='relu', return_sequences=True))
         our_model.add(Dense(n_channels, activation='relu'))
     our_model.add(rnn_unit(units=n_channels, activation='relu', return_sequences=True))
@@ -95,27 +95,29 @@ def RnnModel(input_shape, n_channels=256, rnn_unit=GRU, deep_level=12):
     return our_model
 
 
-def ConvLstmModel(input_shape, deep_level=2, filters=4):
+def ConvLstmModel(input_shape, deep_level=8, filters=128):
     """
     convolutional LSTM model
     deep_level: number of levels of conv lstm
     """
     our_model = Sequential()
     our_model.add(ConvLSTM2D(filters=filters, kernel_size=(3, 3),
-                             input_shape=input_shape, padding='valid',
+                             input_shape=input_shape, padding='same',
                              return_sequences=True))
     our_model.add(BatchNormalization())
     for _ in range(deep_level - 1):
         our_model.add(ConvLSTM2D(filters=filters, kernel_size=(3, 3),
-                                 padding='valid',
+                                 padding='same',
                                  return_sequences=True))
         our_model.add(BatchNormalization())
-    our_model.add(BatchNormalization())
-    our_model.add(Conv3D(filters=filters, kernel_size=(3, 3, 3),
-                         activation='relu', padding='valid'))
+    our_model.add(ConvLSTM2D(filters=filters, kernel_size=(3, 3),
+                             padding='same',
+                             return_sequences=False))
+    # our_model.add(Conv3D(filters=2, kernel_size=(3, 3, 3),
+    #                      activation='relu', padding='same'))
     our_model.add(Flatten())
-    our_model.add(Dense(64, activation='relu'))
-    our_model.add(Dropout(0.4))
+    our_model.add(Dense(128, activation='relu'))
+    our_model.add(Dropout(0.2))
     our_model.add(Dense(1, activation='relu'))
     our_model.compile(loss='mean_squared_error', optimizer='adadelta')
 
@@ -225,7 +227,7 @@ def cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_
     return avg_Y_pred, Y
 
 
-def cross_validataion_convlstm(t_span, height_span, image_size, downsample_size, convlstm_model, augment, K=5, limit=10000):
+def cross_validataion_convlstm(t_span, height_span, image_size, downsample_size, convlstm_model, K=5, limit=10000):
     k_fold = KFold(K)
     time_length = len(t_span)
     channels = len(height_span)
@@ -249,7 +251,7 @@ def cross_validataion_convlstm(t_span, height_span, image_size, downsample_size,
     return Y_pred, Y
 
 
-def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, augment, K=5, limit=10000):
+def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, K=5, limit=10000):
 
     time_length = len(t_span)
     channels = len(height_span)
@@ -404,7 +406,7 @@ def time_sensitive_validataion_cnn(t_span, height_span, image_size, downsample_s
 
 def output_global_average():
     with open("global_avg.csv", "w") as outputfile:
-        for i in range(2000):
+        for _ in range(2000):
             outputfile.write("{}\n".format(15.5454))
 
 
@@ -512,7 +514,7 @@ def round_circle(X, k):
 
     circle = np.concatenate((X[:, center_X, center_Y + k].reshape(-1, 1), X[:, center_X, center_Y - k].reshape(-1, 1),
                              X[:, center_X - k, center_Y].reshape(-1, 1), X[:, center_X + k, center_Y].reshape(-1, 1)
-                             ), axis=1)
+                            ), axis=1)
     for i in range(1, k):
         j = k - 1
         circle = np.concatenate((circle,
@@ -520,7 +522,7 @@ def round_circle(X, k):
                                  X[:, center_X - i, center_Y + j].reshape(-1, 1),
                                  X[:, center_X + i, center_Y - j].reshape(-1, 1),
                                  X[:, center_X - i, center_Y - j].reshape(-1, 1)
-                                 ), axis=1)
+                                ), axis=1)
 
     return circle
 
@@ -565,19 +567,20 @@ def handcraft_features_training(t_span, height_span, limit=10000):
 
     # temporal features:
     for i in range(len(t_span) - 1):
-        for subsample in range(1, 4):
-            t_0 = t_span[0]
-            t_1 = t_span[i + 1]
-            column_prefix_t0 = "t{}h{}s{}".format(t_0, h, subsample)
-            column_prefix_t1 = "t{}h{}s{}".format(t_1, h, subsample)
-            column_prefix_diff = "t{}-{}h{}s{}".format(t_0, t_1, h, subsample)
-            df.loc[:, '{}_{}'.format(column_prefix_diff, 'center')] = \
-                df.loc[:, '{}_{}'.format(column_prefix_t0, 'center')] - df.loc[:, '{}_{}'.format(column_prefix_t1, 'center')]
-            for k in range(1, 6):
-                df.loc[:, '{}_k{}_{}'.format(column_prefix_diff, k, 'mean')] = \
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix_t0, k, 'mean')] - df.loc[:, '{}_k{}_{}'.format(column_prefix_t1, k, 'mean')]
-                df.loc[:, '{}_k{}_{}'.format(column_prefix_diff, k, 'median')] = \
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix_t0, k, 'median')] - df.loc[:, '{}_k{}_{}'.format(column_prefix_t1, k, 'median')]
+        for h in height_span:
+            for subsample in range(1, 4):
+                t_0 = t_span[0]
+                t_1 = t_span[i + 1]
+                column_prefix_t0 = "t{}h{}s{}".format(t_0, h, subsample)
+                column_prefix_t1 = "t{}h{}s{}".format(t_1, h, subsample)
+                column_prefix_diff = "t{}-{}h{}s{}".format(t_0, t_1, h, subsample)
+                df.loc[:, '{}_{}'.format(column_prefix_diff, 'center')] = \
+                    df.loc[:, '{}_{}'.format(column_prefix_t0, 'center')] - df.loc[:, '{}_{}'.format(column_prefix_t1, 'center')]
+                for k in range(1, 6):
+                    df.loc[:, '{}_k{}_{}'.format(column_prefix_diff, k, 'mean')] = \
+                        df.loc[:, '{}_k{}_{}'.format(column_prefix_t0, k, 'mean')] - df.loc[:, '{}_k{}_{}'.format(column_prefix_t1, k, 'mean')]
+                    df.loc[:, '{}_k{}_{}'.format(column_prefix_diff, k, 'median')] = \
+                        df.loc[:, '{}_k{}_{}'.format(column_prefix_t0, k, 'median')] - df.loc[:, '{}_k{}_{}'.format(column_prefix_t1, k, 'median')]
 
     print(df.head())
     df.info()
@@ -595,10 +598,10 @@ if __name__ == "__main__":
     np.random.seed(712)
     backend.set_image_data_format('channels_last')  # explicitly set the channels are in the first dimenstion
 
-    t_span = [14, ]
-    height_span = [0, 1, ]
-    image_size = 21
-    downsample_size = 3
+    sz_t_span = [14, 13, 12, 11, 10]
+    sz_height_span = [0, 1, ]
+    sz_image_size = 15
+    sz_downsample_size = 3
 
     # handcraft_features_training(t_span, height_span)
 
@@ -618,16 +621,14 @@ if __name__ == "__main__":
     # pyplot.show()
 
     # train cnn
-    image_size = 33
-    downsample_size = 3
-    cnn_model = CnnModel((image_size, image_size, len(height_span)))
+    # cnn_model = CnnModel((image_size, image_size, len(height_span)))
     # res_model = ResModel((image_size, image_size, len(height_span)))
-    # convlstm_model = ConvLstmModel((len(t_span), image_size, image_size, len(height_span)))
+    our_convlstm_model = ConvLstmModel((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
     # rnn_model = RnnModel((len(t_span), len(height_span) * image_size * image_size))
-    initial_weights = cnn_model.get_weights()
-    cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_model, initial_weights, augment=False, limit=10000)
-    # cross_validataion_convlstm(t_span, height_span, image_size, downsample_size, convlstm_model, augment=False, limit=10000)
-    # cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, augment=False, limit=10000)
+    # initial_weights = cnn_model.get_weights()
+    # cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_model, initial_weights, augment=False, limit=10000)
+    cross_validataion_convlstm(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, our_convlstm_model, limit=10000)
+    # cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, limit=10000)
 
     # time_sensitive_validataion_cnn(t_span, height_span, image_size, downsample_size, [res_model, ], initial_weights, augment=False)
 
