@@ -7,8 +7,9 @@ from keras import backend
 from keras.layers.core import Dense, Dropout, Flatten
 from keras.layers.pooling import MaxPooling2D
 from keras.layers.convolutional_recurrent import ConvLSTM2D
-from keras.layers.recurrent import GRU
+from keras.layers.recurrent import GRU, SimpleRNN, LSTM
 from keras.layers.convolutional import Conv2D, Conv3D
+from keras.layers.wrappers import TimeDistributed
 from keras.layers.normalization import BatchNormalization
 from keras.callbacks import EarlyStopping
 from sklearn.model_selection import KFold, cross_val_predict
@@ -19,6 +20,12 @@ import pandas as pd
 from load_rainfall import load_training_data, load_testA_data, load_training_data_4_viewpoints
 from residual_blocks2 import building_residual_block
 from matplotlib import pyplot
+import plotly.plotly as py
+import plotly.graph_objs as go
+
+
+NORM_X = 215.0
+NORM_Y = 60.0
 
 
 def rmse(Y, Y_pred):
@@ -31,10 +38,13 @@ def CnnModel(input_shape):
     """
     our_model = Sequential()
     print(input_shape)
-    our_model.add(Conv2D(128, (5, 5), padding='same', activation='relu', input_shape=input_shape))
-    our_model.add(MaxPooling2D(pool_size=(2, 2)))
+    our_model.add(Conv2D(256, (5, 5), padding='same', activation='relu', input_shape=input_shape))
     our_model.add(Conv2D(256, (5, 5), padding='same', activation='relu'))
     our_model.add(MaxPooling2D(pool_size=(2, 2)))
+    our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
+    our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
+    our_model.add(MaxPooling2D(pool_size=(2, 2)))
+    our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
     our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
     our_model.add(Flatten())
     our_model.add(Dense(256, activation='relu'))
@@ -43,11 +53,11 @@ def CnnModel(input_shape):
     our_model.add(Dropout(0.5))
     our_model.add(Dense(1, activation='relu'))
     our_model.compile(loss='mean_squared_error',
-                      optimizer='adam')
+                      optimizer='adadelta')
     return our_model
 
 
-def ResModel(input_shape, n_channels=64):
+def ResModel(input_shape, n_channels=128):
     """
     residual model structure:
     input +
@@ -65,17 +75,14 @@ def ResModel(input_shape, n_channels=64):
                                               n_channels, kernel_size))
     our_model.add(Conv2D(2, (3, 3), activation='relu', input_shape=input_shape))
     our_model.add(Flatten())
-    # our_model.add(Dense(256, activation='relu'))
-    our_model.add(Dropout(0.5))
+    our_model.add(Dropout(0.4))
     our_model.add(Dense(1))
-    # adam = optimizers.Adam(lr=0.01, decay=1e-6)
-    # sgd = optimizers.SGD(momentum=0.9, nesterov=True)
     our_model.compile(loss='mean_squared_error',
                       optimizer='adam')
     return our_model
 
 
-def RnnModel(input_shape, n_channels=256, rnn_unit=GRU, deep_level=12):
+def RnnModel(input_shape, n_channels=1024, rnn_unit=GRU, deep_level=7):
     our_model = Sequential()
     our_model.add(rnn_unit(units=n_channels, input_shape=input_shape, activation='relu', return_sequences=True))
     our_model.add(Dense(n_channels, activation='relu'))
@@ -85,14 +92,14 @@ def RnnModel(input_shape, n_channels=256, rnn_unit=GRU, deep_level=12):
     our_model.add(rnn_unit(units=n_channels, activation='relu', return_sequences=True))
     our_model.add(Flatten())
     our_model.add(Dense(n_channels, activation='relu'))
-    our_model.add(Dropout(0.2))
-    our_model.add(Dense(1, activation='relu'))
-    our_model.compile(loss='mean_squared_error', optimizer='adam')
+    our_model.add(Dropout(0.5))       
+    our_model.add(Dense(1, activation='sigmoid'))
+    our_model.compile(loss='mean_squared_error', optimizer='adadelta')
 
     return our_model
 
 
-def ConvLstmModel(input_shape, deep_level=5, filters=64):
+def ConvLstmModel(input_shape, deep_level=5, filters=96):
     """
     convolutional LSTM model
     deep_level: number of levels of conv lstm
@@ -115,6 +122,37 @@ def ConvLstmModel(input_shape, deep_level=5, filters=64):
     our_model.add(Flatten())
     our_model.add(Dense(128, activation='relu'))
     our_model.add(Dropout(0.5))
+    our_model.add(Dense(1, activation='relu'))
+    our_model.compile(loss='mean_squared_error', optimizer='adadelta')
+
+    return our_model
+
+
+def StackingConvRNN(input_shape, rnn_level=7, filters=256):
+    """
+    Using Conv network over RNN unit layer
+    input_shape: [n_timestep, img_size, img_size, n_channels]
+    """
+    our_model = Sequential()
+    our_model.add(TimeDistributed(Conv2D(filters, (3, 3), padding='same', activation='relu'), input_shape=input_shape))
+    our_model.add(TimeDistributed(BatchNormalization()))
+    our_model.add(TimeDistributed(MaxPooling2D((2, 2))))
+    our_model.add(TimeDistributed(Conv2D(filters, (3, 3), padding='same', activation='relu')))
+    our_model.add(TimeDistributed(BatchNormalization()))
+    our_model.add(TimeDistributed(Conv2D(filters, (3, 3), padding='same', activation='relu')))
+    our_model.add(TimeDistributed(BatchNormalization()))
+    our_model.add(TimeDistributed(MaxPooling2D((2, 2))))
+    our_model.add(TimeDistributed(Conv2D(filters, (3, 3), padding='same', activation='relu')))
+    our_model.add(TimeDistributed(BatchNormalization()))
+    our_model.add(TimeDistributed(MaxPooling2D((2, 2))))
+    our_model.add(TimeDistributed(Flatten()))
+    our_model.add(TimeDistributed(Dropout(0.4)))
+    for _ in range(rnn_level):
+        our_model.add(GRU(filters, return_sequences=True))
+        our_model.add(Dense(filters))
+    our_model.add(Flatten())
+    our_model.add(Dense(filters))
+    our_model.add(Dropout(0.4))
     our_model.add(Dense(1, activation='relu'))
     our_model.compile(loss='mean_squared_error', optimizer='adadelta')
 
@@ -207,8 +245,8 @@ def cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_
                 train_X, train_Y = X[train], Y[train]
             else:
                 train_X, train_Y = augment_training_data(X[train], Y[train], image_size, mode='image')
-            early_stop = EarlyStopping(monitor='val_loss', patience=2)
-            cnn_model.fit(train_X, train_Y, batch_size=64, epochs=500, verbose=1, validation_data=(X[test], Y[test]), callbacks=[early_stop])
+            # early_stop = EarlyStopping(monitor='val_loss', patience=2)
+            cnn_model.fit(train_X, train_Y, batch_size=64, epochs=500, verbose=1, validation_data=(X[test], Y[test]))
             Y_pred[test] = cnn_model.predict(X[test]).reshape(-1, 1)
             print("cv {} rmse: {}".format(k, rmse(Y_pred[test], Y[test])))
 
@@ -259,6 +297,18 @@ def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_
         X = X.reshape((limit, 1, -1))
         for i in range(limit):
             Xs[i, idx] = X[i]
+    neg_idxs = np.unique(np.argwhere(Xs < 0)[:, 0])
+    mask = np.ones(len(Y), dtype=bool)
+    mask[neg_idxs] = False
+    print("num of instances with -1: {}".format(len(neg_idxs)))
+    Xs = Xs[mask] / NORM_X
+    Y = Y[mask] / NORM_Y
+    
+    # print(np.max(Xs))
+    # print(np.min(Xs))
+    # print(np.max(Y))
+    # data = [go.Histogram(x=Y)]
+    # py.plot(data, filename='basic histogram')
 
     k_fold = KFold(K)
     Y_pred = np.zeros((limit, 1))
@@ -595,9 +645,9 @@ if __name__ == "__main__":
     np.random.seed(712)
     backend.set_image_data_format('channels_last')  # explicitly set the channels are in the first dimenstion
 
-    sz_t_span = [14, 13, 12, 11, ]
+    sz_t_span = [14, 13, 12, 11, 10, 9, 8, 7]
     sz_height_span = [1, ]
-    sz_image_size = 33
+    sz_image_size = 24
     sz_downsample_size = 3
 
     # handcraft_features_training(t_span, height_span)
@@ -618,14 +668,18 @@ if __name__ == "__main__":
     # pyplot.show()
 
     # train cnn
-    # cnn_model = CnnModel((image_size, image_size, len(height_span)))
-    # res_model = ResModel((image_size, image_size, len(height_span)))
-    our_convlstm_model = ConvLstmModel((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
-    # rnn_model = RnnModel((len(t_span), len(height_span) * image_size * image_size))
-    # initial_weights = cnn_model.get_weights()
-    # cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_model, initial_weights, augment=False, limit=10000)
-    cross_validataion_convlstm(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, our_convlstm_model, limit=10000)
-    # cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, limit=10000)
+    # test_model = CnnModel((sz_image_size, sz_image_size, len(sz_height_span)))
+    # test_model = ResModel((sz_image_size, sz_image_size, len(sz_height_span)))
+    # runtime_initial_weights = test_model.get_weights()
+    # cross_validataion_cnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, augment=False, limit=10000)
+
+    # our_convlstm_model = ConvLstmModel((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
+    # our_stack_model = StackingConvRNN((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
+    # cross_validataion_convlstm(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, our_stack_model, limit=10000)
+
+    test_model = RnnModel((len(sz_t_span), len(sz_height_span) * sz_image_size * sz_image_size))
+    runtime_initial_weights = test_model.get_weights()
+    cross_validataion_rnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, limit=10000)
 
     # time_sensitive_validataion_cnn(t_span, height_span, image_size, downsample_size, [res_model, ], initial_weights, augment=False)
 
@@ -645,3 +699,5 @@ if __name__ == "__main__":
 
     # ==================== fowling are neural network structures for reference ===================
     # (FAIL) input: [14 13 12 11] [1] 33*33*1 downsample-3 convLSTM (filters=64, deep_level=5, dropout=0.5)   # a larger network will be out of memory
+    # (FAIL) cnn structure with 3 conv + max-pooling (maybe use even larger network later)
+    # (TO_TEST) resnet structure 64
