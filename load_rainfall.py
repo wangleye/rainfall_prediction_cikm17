@@ -1,10 +1,11 @@
 """
 Load rainfall data from the mongo DB
 """
+from pathlib import Path
 import pymongo
 import numpy as np
 from skimage.measure import block_reduce
-from pathlib import Path
+
 
 db = pymongo.MongoClient().rainfall_sz  # mongodb database
 NUM_TRAIN = 10000
