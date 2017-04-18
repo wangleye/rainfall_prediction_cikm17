@@ -3,7 +3,7 @@ Predict rainfall for the CIKM 2017 Competition
 """
 import numpy as np
 from keras.models import Sequential, load_model
-from keras import backend
+from keras import backend, regularizers
 from keras.layers.core import Dense, Dropout, Flatten
 from keras.layers.pooling import MaxPooling2D
 from keras.layers.convolutional_recurrent import ConvLSTM2D
@@ -32,7 +32,7 @@ def rmse(Y, Y_pred):
     return np.sqrt(metrics.mean_squared_error(Y, Y_pred))
 
 
-def CnnModel(input_shape):
+def CnnModel(input_shape, rweight=0.1):
     """
     simple CNN model structure with reference to LeNET
     """
@@ -42,18 +42,19 @@ def CnnModel(input_shape):
     our_model.add(Conv2D(256, (5, 5), padding='same', activation='relu'))
     our_model.add(MaxPooling2D(pool_size=(2, 2)))
     our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
-    our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
+    # our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
     our_model.add(MaxPooling2D(pool_size=(2, 2)))
     our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
-    our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
+    # our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
     our_model.add(Flatten())
-    our_model.add(Dense(256, activation='relu'))
+    our_model.add(Dense(256, kernel_regularizer=regularizers.l2(rweight), activation='relu'))
     # our_model.add(Dropout(0.3))
-    our_model.add(Dense(256, activation='relu'))
+    our_model.add(Dense(256, kernel_regularizer=regularizers.l2(rweight), activation='relu'))
+    our_model.add(Dense(256, kernel_regularizer=regularizers.l2(rweight), activation='relu'))    
     our_model.add(Dropout(0.5))
     our_model.add(Dense(1, activation='relu'))
     our_model.compile(loss='mean_squared_error',
-                      optimizer='adadelta')
+                      optimizer='adam')
     return our_model
 
 
@@ -169,16 +170,13 @@ def augment_training_data(X, Y, image_size, mode):
     augment_Y = np.zeros(Y.shape)
 
     for i in range(len(Y)):
-        ori_feature = X[i].reshape(-1, image_size, image_size)
+        ori_feature = X[i].reshape(image_size, image_size, -1)
         new_feature = np.zeros(ori_feature.shape)
 
         # do matrix flip to generate new training data
-        flip_coin = np.random.random_sample()
         for j in range(ori_feature.shape[0]):
-            if flip_coin >= 0.5:
-                new_feature[j] = np.flipud(ori_feature[j])
-            else:
-                new_feature[j] = np.fliplr(ori_feature[j])
+            new_feature[j] = np.flipud(ori_feature[j])
+            new_feature[j] = np.fliplr(ori_feature[j])
 
         if mode == 'flatten':
             augment_X[i] = new_feature.reshape(1, -1)
@@ -187,7 +185,8 @@ def augment_training_data(X, Y, image_size, mode):
         augment_Y[i] = Y[i]
 
         if i % 200 == 0:
-            print(i)
+            print("augmenting data {}".format(i), end='\r')
+    print("\naugmenting done!")
 
     return np.concatenate((X, augment_X)), np.concatenate((Y, augment_Y))
 
@@ -236,6 +235,7 @@ def cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_
     Y_pred_collection = None
     for t in t_span:
         X, Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+        X, Y = preprocessing_data(X, Y)
 
         k_fold = KFold(K)
         Y_pred = np.zeros((len(Y), 1))
@@ -245,8 +245,8 @@ def cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_
                 train_X, train_Y = X[train], Y[train]
             else:
                 train_X, train_Y = augment_training_data(X[train], Y[train], image_size, mode='image')
-            # early_stop = EarlyStopping(monitor='val_loss', patience=2)
-            cnn_model.fit(train_X, train_Y, batch_size=64, epochs=500, verbose=1, validation_data=(X[test], Y[test]))
+            early_stop = EarlyStopping(monitor='loss', patience=0)
+            cnn_model.fit(train_X, train_Y, batch_size=32, epochs=200, verbose=1, validation_data=(X[test], Y[test]), callbacks=[early_stop, ])
             Y_pred[test] = cnn_model.predict(X[test]).reshape(-1, 1)
             print("cv {} rmse: {}".format(k, rmse(Y_pred[test], Y[test])))
 
@@ -286,6 +286,21 @@ def cross_validataion_convlstm(t_span, height_span, image_size, downsample_size,
     return Y_pred, Y
 
 
+def preprocessing_data(X, Y):
+
+    # remove the data with missing X or too large Y (abnormal values)
+    neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
+    large_idxs = np.unique(np.argwhere(Y > NORM_Y)[:, 0])
+    merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
+    mask = np.ones(len(Y), dtype=bool)
+    mask[merge_idx] = False
+
+    X = X[mask] / NORM_X
+    Y = Y[mask] / NORM_Y
+
+    return X, Y
+
+
 def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, K=5, limit=10000):
 
     time_length = len(t_span)
@@ -297,18 +312,8 @@ def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_
         X = X.reshape((limit, 1, -1))
         for i in range(limit):
             Xs[i, idx] = X[i]
-    neg_idxs = np.unique(np.argwhere(Xs < 0)[:, 0])
-    mask = np.ones(len(Y), dtype=bool)
-    mask[neg_idxs] = False
-    print("num of instances with -1: {}".format(len(neg_idxs)))
-    Xs = Xs[mask] / NORM_X
-    Y = Y[mask] / NORM_Y
-    
-    # print(np.max(Xs))
-    # print(np.min(Xs))
-    # print(np.max(Y))
-    # data = [go.Histogram(x=Y)]
-    # py.plot(data, filename='basic histogram')
+
+    Xs, Y = preprocessing_data(X, Y)
 
     k_fold = KFold(K)
     Y_pred = np.zeros((limit, 1))
@@ -668,18 +673,18 @@ if __name__ == "__main__":
     # pyplot.show()
 
     # train cnn
-    # test_model = CnnModel((sz_image_size, sz_image_size, len(sz_height_span)))
+    test_model = CnnModel((sz_image_size, sz_image_size, len(sz_height_span)))
     # test_model = ResModel((sz_image_size, sz_image_size, len(sz_height_span)))
-    # runtime_initial_weights = test_model.get_weights()
-    # cross_validataion_cnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, augment=False, limit=10000)
+    runtime_initial_weights = test_model.get_weights()
+    cross_validataion_cnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, augment=False, limit=10000)
 
     # our_convlstm_model = ConvLstmModel((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
     # our_stack_model = StackingConvRNN((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
     # cross_validataion_convlstm(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, our_stack_model, limit=10000)
 
-    test_model = RnnModel((len(sz_t_span), len(sz_height_span) * sz_image_size * sz_image_size))
-    runtime_initial_weights = test_model.get_weights()
-    cross_validataion_rnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, limit=10000)
+    # test_model = RnnModel((len(sz_t_span), len(sz_height_span) * sz_image_size * sz_image_size))
+    # runtime_initial_weights = test_model.get_weights()
+    # cross_validataion_rnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, limit=10000)
 
     # time_sensitive_validataion_cnn(t_span, height_span, image_size, downsample_size, [res_model, ], initial_weights, augment=False)
 
