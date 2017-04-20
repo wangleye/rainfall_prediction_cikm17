@@ -15,12 +15,12 @@ def load_training_data_sklearn(t, height_span, image_size, downsample_size, limi
     """
     load training data and make X flat for sklearn learners
     """
-    training_X, training_Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+    training_X, training_Y = load_training_data(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
     flatten_training_X = training_X.flatten().reshape(len(training_Y), -1)
     return flatten_training_X, training_Y
 
 
-def load_training_data(t, height_span, img_size, downsample_size, limit=NUM_TRAIN, data_format="channels_last"):
+def load_training_data(t, height_span, image_size, downsample_size, limit=NUM_TRAIN, data_format="channels_last"):
     """
     load training data from the mongo db
 
@@ -34,13 +34,13 @@ def load_training_data(t, height_span, img_size, downsample_size, limit=NUM_TRAI
 
     return X, y
     """
-    print("loading training data... t: {}, h: {}, img_size: {}, downsample: {}, limit: {}".format(t, height_span, img_size, downsample_size, limit))
+    print("loading training data... t: {}, h: {}, img_size: {}, downsample: {}, limit: {}".format(t, height_span, image_size, downsample_size, limit))
     if limit <= 0 or limit > NUM_TRAIN:
         limit = NUM_TRAIN
-    if img_size <= 0 or img_size > 101:
-        img_size = 101
+    if image_size <= 0 or image_size > 101:
+        image_size = 101
 
-    parameter_setting = '{}_{}_{}_{}'.format(t, height_span, img_size, downsample_size)
+    parameter_setting = '{}_{}_{}_{}'.format(t, height_span, image_size, downsample_size)
     cache_file_X = 'cached_training_data/X_{}.npy'.format(parameter_setting)
     cache_file_Y = 'cached_training_data/Y_{}.npy'.format(parameter_setting)
 
@@ -63,8 +63,8 @@ def load_training_data(t, height_span, img_size, downsample_size, limit=NUM_TRAI
                 rec_x = np.asarray(record['spatial_data']).reshape(101, 101).astype(int)
                 if downsample_size > 1:
                     rec_x = block_reduce(image=rec_x, block_size=(downsample_size, downsample_size), func=np.max)
-                idx_low = int(rec_x.shape[0] / 2) - int(img_size / 2)
-                idx_high = int(rec_x.shape[0] / 2) + int((img_size + 1) / 2)
+                idx_low = int(rec_x.shape[0] / 2) - int(image_size / 2)
+                idx_high = int(rec_x.shape[0] / 2) + int((image_size + 1) / 2)
                 train_Y[i] = record['rainfall']
                 rec_x = rec_x[idx_low:idx_high, idx_low:idx_high]
                 X.append(rec_x)
@@ -88,7 +88,7 @@ def load_training_data_sklearn_4_viewpoints(t, height_span, image_size, downsamp
     load training data and change to flatten X
     """
     training_Xs, training_Y = load_training_data_4_viewpoints(
-        t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+        t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
     flatten_training_Xs = []
     for training_X in training_Xs:
         flatten_training_X = training_X.flatten().reshape(len(training_Y), -1)
@@ -96,7 +96,7 @@ def load_training_data_sklearn_4_viewpoints(t, height_span, image_size, downsamp
     return flatten_training_Xs, training_Y
 
 
-def load_training_data_4_viewpoints(t, height_span, img_size, downsample_size, limit=NUM_TRAIN):
+def load_training_data_4_viewpoints(t, height_span, image_size, downsample_size, limit=NUM_TRAIN):
     """
     load training data from the mongo db
     t: time slit no.
@@ -107,18 +107,18 @@ def load_training_data_4_viewpoints(t, height_span, img_size, downsample_size, l
     return X, y
     """
     print("loading training data with 4 viewpoints... t: {}, h: {}, img_size: {}, downsample: {}, limit: {}".format(
-        t, height_span, img_size, downsample_size, limit))
-    train_X, train_Y = load_training_data(t, height_span, img_size, downsample_size, limit)
-    cut_point = int(img_size * 2.0 / 3.0)
+        t, height_span, image_size, downsample_size, limit))
+    train_X, train_Y = load_training_data(t, height_span, image_size, downsample_size, limit)
+    cut_point = int(image_size * 2.0 / 3.0)
     train_X1 = train_X[:, :, 0:cut_point, 0:cut_point]  # left up viewpoint
-    train_X2 = train_X[:, :, (img_size - cut_point):, 0:cut_point]  # left down viewpoint
-    train_X3 = train_X[:, :, 0:cut_point, (img_size - cut_point):]  # right up viewpoint
-    train_X4 = train_X[:, :, (img_size - cut_point):, (img_size - cut_point):]  # right down viewpoint
+    train_X2 = train_X[:, :, (image_size - cut_point):, 0:cut_point]  # left down viewpoint
+    train_X3 = train_X[:, :, 0:cut_point, (image_size - cut_point):]  # right up viewpoint
+    train_X4 = train_X[:, :, (image_size - cut_point):, (image_size - cut_point):]  # right down viewpoint
 
     return [train_X1, train_X2, train_X3, train_X4], train_Y
 
 
-def load_testA_data(t, height_span, img_size, downsample_size=1, limit=-1):
+def load_testA_data(t, height_span, image_size, downsample_size=1, limit=-1):
     """
     load training data from the mongo db
     t: time slit no.
@@ -128,8 +128,8 @@ def load_testA_data(t, height_span, img_size, downsample_size=1, limit=-1):
     """
     if limit <= 0 or limit > 2000:
         limit = 2000
-    if img_size <= 0 or img_size > 101:
-        img_size = 101
+    if image_size <= 0 or image_size > 101:
+        image_size = 101
 
     test_X = [0] * limit  # test data has 2000 records
 
@@ -141,8 +141,8 @@ def load_testA_data(t, height_span, img_size, downsample_size=1, limit=-1):
             rec_x = np.asarray(record['spatial_data']).reshape(101, 101).astype(int)
             if downsample_size > 1:
                 rec_x = block_reduce(image=rec_x, block_size=(downsample_size, downsample_size), func=np.max)
-            idx_low = int(rec_x.shape[0] / 2) - int(img_size / 2)
-            idx_high = int(rec_x.shape[0] / 2) + int(img_size / 2) + 1
+            idx_low = int(rec_x.shape[0] / 2) - int(image_size / 2)
+            idx_high = int(rec_x.shape[0] / 2) + int(image_size / 2) + 1
             rec_x = rec_x[idx_low:idx_high, idx_low:idx_high]
             X.append(rec_x)
         test_X[i - 1] = np.stack(X)

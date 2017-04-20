@@ -7,22 +7,22 @@ from keras import backend, regularizers
 from keras.layers.core import Dense, Dropout, Flatten
 from keras.layers.pooling import MaxPooling2D
 from keras.layers.convolutional_recurrent import ConvLSTM2D
-from keras.layers.recurrent import GRU, SimpleRNN, LSTM
-from keras.layers.convolutional import Conv2D, Conv3D
+import keras.layers.recurrent as recurrent_unit
+from keras.layers.convolutional import Conv2D
 from keras.layers.wrappers import TimeDistributed
 from keras.layers.normalization import BatchNormalization
 from keras.callbacks import EarlyStopping
-from sklearn.model_selection import KFold, cross_val_predict
-from sklearn import linear_model, metrics, ensemble, svm
+from sklearn.model_selection import KFold
+from sklearn import metrics, ensemble
 from sklearn.externals import joblib
 import xgboost as xgb
-import pandas as pd
-from load_rainfall import load_training_data, load_testA_data, load_training_data_4_viewpoints
+# import pandas as pd
+from load_rainfall import load_training_data, load_testA_data
 from load_rainfall import load_training_data_sklearn, load_training_data_sklearn_4_viewpoints
 from residual_blocks2 import building_residual_block
-from matplotlib import pyplot
-import plotly.plotly as py
-import plotly.graph_objs as go
+# from matplotlib import pyplot
+# import plotly.plotly as py
+# import plotly.graph_objs as go
 
 
 NORM_X = 215.0
@@ -84,7 +84,7 @@ def ResModel(input_shape, n_channels=128):
     return our_model
 
 
-def RnnModel(input_shape, n_channels=1024, rnn_unit=GRU, deep_level=7):
+def RnnModel(input_shape, n_channels=1024, rnn_unit=recurrent_unit.GRU, deep_level=7):
     our_model = Sequential()
     our_model.add(rnn_unit(units=n_channels, input_shape=input_shape, activation='relu', return_sequences=True))
     our_model.add(Dense(n_channels, activation='relu'))
@@ -146,7 +146,7 @@ def StackingConvRNN(input_shape, rnn_level=3, filters=64, rweight=0.1):
     our_model.add(TimeDistributed(Flatten()))
     # our_model.add(TimeDistributed(Dropout(0.4)))
     for _ in range(rnn_level):
-        our_model.add(GRU(filters, return_sequences=True))
+        our_model.add(recurrent_unit.GRU(filters, return_sequences=True))
         our_model.add(Dense(filters))
     our_model.add(Flatten())
     our_model.add(Dense(filters, kernel_regularizer=regularizers.l2(rweight)))
@@ -166,7 +166,7 @@ def augment_training_data(X, Y, image_size, mode):
     augment_X = np.zeros(X.shape)
     augment_Y = np.zeros(Y.shape)
 
-    for i in range(len(Y)):
+    for i, _ in enumerate(Y):
         ori_feature = X[i].reshape(image_size, image_size, -1)
         new_feature = np.zeros(ori_feature.shape)
 
@@ -188,7 +188,8 @@ def augment_training_data(X, Y, image_size, mode):
     return np.concatenate((X, augment_X)), np.concatenate((Y, augment_Y))
 
 
-def cross_validataion_avg_aggregate(t_span, height_span, image_size, learner, augment, downsample_size, K=5, limit=10000):
+def cross_validataion_avg_aggregate(t_span, height_span, image_size, learner, augment, downsample_size, test_ratio=0.2, limit=10000):
+    K = int(1 / test_ratio)
     Y_pred_collection = None
     for t in t_span:
         X, Y = load_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
@@ -228,10 +229,14 @@ def residual_error_regression(Y_pred_collection, Y, learner):
     return learner
 
 
-def cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_model, initial_weights, augment, K=5, limit=10000):
+def cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_model, initial_weights, augment, test_ratio=0.2, limit=10000):
+    """
+    cross validation for cnn-like models
+    """
+    K = int(1 / test_ratio)
     Y_pred_collection = None
     for t in t_span:
-        X, Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+        X, Y = load_training_data(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
         X = X/NORM_X
         Y = Y/NORM_Y
         # X, Y = preprocessing_data(X, Y)
@@ -261,14 +266,18 @@ def cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_
     return avg_Y_pred, Y
 
 
-def cross_validataion_convlstm(t_span, height_span, image_size, downsample_size, convlstm_model, K=5, limit=10000):
+def cross_validataion_convlstm(t_span, height_span, image_size, downsample_size, convlstm_model, test_ratio=0.2, limit=10000):
+    """
+    cross validation on rnn+cnn models
+    """
+    K = int(1 / test_ratio)
     k_fold = KFold(K)
     time_length = len(t_span)
     channels = len(height_span)
     Xs = np.zeros((limit, time_length, image_size, image_size, channels))
     t_span.sort()
     for idx, t in enumerate(t_span):
-        X, Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+        X, Y = load_training_data(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
         X = X.reshape((limit, 1, image_size, image_size, channels))
         for i in range(limit):
             Xs[i, idx] = X[i]
@@ -300,14 +309,17 @@ def preprocessing_data(X, Y):
     return X[mask], Y[mask]
 
 
-def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, K=5, limit=10000):
-
+def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, test_ratio=0.2, limit=10000):
+    """
+    cross_validation on rnn models
+    """
+    K = int(1 / test_ratio)
     time_length = len(t_span)
     channels = len(height_span)
     Xs = np.zeros((limit, time_length, channels * image_size * image_size))
     t_span.sort()
     for idx, t in enumerate(t_span):
-        X, Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+        X, Y = load_training_data(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
         X = X.reshape((limit, 1, -1))
         for i in range(limit):
             Xs[i, idx] = X[i]
@@ -328,7 +340,7 @@ def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_
 
 
 def time_sensitive_validataion_avg_aggregate(
-        t_span, height_span, image_size, learner, augment, downsample_size, residual_adjust=None, holdout=0.1, limit=10000):
+        t_span, height_span, image_size, learner, augment, downsample_size, residual_adjust=None, test_ratio=0.2, limit=10000):
     """
     use the first part of training data for training and the last part of the data for validation
     holdout is the percentage of the validation part
@@ -338,8 +350,8 @@ def time_sensitive_validataion_avg_aggregate(
         X, Y = load_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
         Y_1D = Y.reshape(-1)
         num_of_recs = len(Y_1D)
-        train = range(int(num_of_recs * (1 - holdout)))
-        test = range(int(num_of_recs * (1 - holdout)), num_of_recs)
+        train = range(int(num_of_recs * (1 - test_ratio)))
+        test = range(int(num_of_recs * (1 - test_ratio)), num_of_recs)
         if not augment:
             X_train, Y_train = X[train], Y_1D[train]
         else:
@@ -419,7 +431,7 @@ def time_sensitive_validataion_cnn(t_span, height_span, image_size, downsample_s
     """
     Y_pred_collection = None
     for t in t_span:
-        X, Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=10000)
+        X, Y = load_training_data(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=10000)
         num_of_recs = len(Y)
         train = range(int(num_of_recs * (1 - holdout)))
         test = range(int(num_of_recs * (1 - holdout)), num_of_recs)
@@ -473,7 +485,7 @@ def train_full_avg_rf_model(t_span, height_span, image_size, downsample_size, le
 def train_full_cnn_model(t_span, height_span, image_size, downsample_size, cnn_model, initial_weights, learner_storage_path):
     for t in t_span:
         print("training t{} h{}...".format(t, height_span))
-        X, Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=10000)
+        X, Y = load_training_data(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=10000)
         reset_weights(cnn_model, initial_weights)
         cnn_model.fit(X, Y, batch_size=256, epochs=10, verbose=1)
         cnn_model.save("{}/t{}h{}size{}.krs".format(learner_storage_path, t, height_span, image_size))
@@ -505,7 +517,7 @@ def load_and_test_cnn_model(t_span, height_span, image_size, downsample_size, le
     test_y_collection = None
     for t in t_span:
         print("testing t{} h{}...".format(t, height_span))
-        X = load_testA_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=2000)
+        X = load_testA_data(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=2000)
         cnn_model = load_model("{}/t{}h{}size{}.krs".format(learner_storage_path, t, height_span, image_size))
         y = cnn_model.predict(X).reshape(-1, 1)
         print(y)
@@ -526,7 +538,7 @@ def load_and_test_cnn_model(t_span, height_span, image_size, downsample_size, le
 def get_testA_data_sklearn(t_span, height_span, image_size, downsample_size, limit=2000):
     flatten_test_X = []
     for t in t_span:
-        test_X = load_testA_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+        test_X = load_testA_data(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
         if len(flatten_test_X) == 0:
             flatten_test_X = test_X.flatten().reshape(limit, -1)
         else:
@@ -628,7 +640,7 @@ def round_circle(X, k):
 
 #     return X_hand, Y
 
-def validation_tool(t_span, height_span, image_size, downsample_size, learner, validation_method, k=5, holdout_ratio=0.1):
+def validation_tool(t_span, height_span, image_size, downsample_size, learner, validation_method, test_ratio=0.2):
     """
     Use various learners to do cross or holdout validation
     
@@ -640,34 +652,62 @@ def validation_tool(t_span, height_span, image_size, downsample_size, learner, v
     'lstm_conv' or 'stack'
 
     ### validation_method
-    'cross' or 'holdout': if 'cross', need to set k; if 'holdout', need to set holdout_ratio
+    'cross' or 'holdout'
+    
+    ### test_ratio
+    the percentage of data is used as test data (e.g. 0.2 means 5-cross validation)
     """
     # sklearn models
-    if learner == 'rf' or learner == 'xgb':
-        if learner == 'rf':
-            test_model = ensemble.RandomForestRegressor(n_estimators=100, n_jobs=4)
-        else:
-            test_model = xgb.XGBRegressor(max_depth=5, learning_rate=0.1, n_estimators=50, min_child_weight=1, subsample=1, colsample_bytree=1)
-        if validation_method == 'cross':
-            cross_validataion_avg_aggregate(t_span, height_span, image_size, test_model,
-                                            augment=False, downsample_size=downsample_size, K=k)
-        else:
-            time_sensitive_validataion_avg_aggregate_4_viewpoints(t_span, height_span, image_size, test_model,
-                                                                  augment=False, downsample_size=downsample_size, holdout=holdout_ratio)
-    
-    # cnn like models
-    elif learner == 'cnn' or learner == 'res':
-        if learner == 'cnn':
-            test_model = CnnModel((image_size, image_size, len(height_span)))
-        else:
-            test_model = ResModel((image_size, image_size, len(height_span)))
-        runtime_initial_weights = test_model.get_weights()
-        if validation_method == 'cross':
-            cross_validataion_cnn(t_span, height_span, image_size, downsample_size,
-                                  test_model, runtime_initial_weights, augment=False, K=k)
-        else:
-            
+    models_sklern = {
+        'rf': ensemble.RandomForestRegressor(n_estimators=100, n_jobs=4),
+        'xgb': xgb.XGBRegressor(max_depth=5, learning_rate=0.1, n_estimators=50, min_child_weight=1, subsample=1, colsample_bytree=1)
+    }
+    models_cnn = {
+        'cnn': CnnModel,
+        'res': ResModel
+    }
+    models_rnn_cnn = {
+        'lstm_conv': ConvLstmModel,
+        'stack': StackingConvRNN
+    }
+    models_rnn = {
+        'rnn': RnnModel
+    }
+    validation_method = {
+        'sklearn': {
+            'cross': cross_validataion_avg_aggregate,
+            'holdout': time_sensitive_validataion_avg_aggregate
+        },
+        'cnn': {
+            'cross': cross_validataion_cnn,
+            'holdout': time_sensitive_validataion_cnn            
+        },
+        'rnn+cnn': {
+            'cross': cross_validataion_convlstm
+        },
+        'rnn': {
+            'cross': cross_validataion_rnn
+        }
+    }
+    if learner in models_sklern:
+        test_model = models_sklern[learner]
+        validation_method['sklearn'][validation_method](t_span, height_span, image_size, test_model,
+                                                        augment=False, downsample_size=downsample_size, test_ratio=test_ratio)
+    elif learner in models_cnn:
+        test_model = models_cnn[learner]((image_size, image_size, len(height_span)))
+        initial_weights = test_model.get_weights()
+        validation_method['cnn'][validation_method](t_span, height_span, image_size, downsample_size,
+                                                    test_model, initial_weights, augment=False, test_ratio=test_ratio)
+    elif learner in models_rnn_cnn:
+        test_model = models_rnn_cnn[learner]((len(t_span), image_size, image_size, len(height_span)))
+        validation_method['rnn+cnn'][validation_method](t_span, height_span, image_size, downsample_size, test_model,
+                                                        test_ratio=test_ratio)
 
+    elif learner in models_rnn:
+        test_model = models_rnn[learner]((len(t_span), len(height_span) * image_size * image_size))
+        initial_weights = test_model.get_weights()
+        validation_method['rnn'][validation_method](t_span, height_span, image_size, downsample_size,
+                                                    test_model, initial_weights, test_ratio)
 
 
 
@@ -683,23 +723,7 @@ if __name__ == "__main__":
     sz_image_size = 24
     sz_downsample_size = 3
 
-    # handcraft_features_training(t_span, height_span)
-
-    # train cnn
-    # test_model = CnnModel((sz_image_size, sz_image_size, len(sz_height_span)))
-    # test_model = ResModel((sz_image_size, sz_image_size, len(sz_height_span)))
-    # runtime_initial_weights = test_model.get_weights()
-    # cross_validataion_cnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, augment=False, limit=10000)
-
-    test_model = ConvLstmModel((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
-    # test_model = StackingConvRNN((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
-    cross_validataion_convlstm(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, limit=10000)
-
-    # test_model = RnnModel((len(sz_t_span), len(sz_height_span) * sz_image_size * sz_image_size))
-    # runtime_initial_weights = test_model.get_weights()
-    # cross_validataion_rnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, limit=10000)
-
-    # time_sensitive_validataion_cnn(t_span, height_span, image_size, downsample_size, [res_model, ], initial_weights, augment=False)
+    validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'xgb', 'cross')
 
     # output trained model for test
     # train_full_avg_rf_model(t_span, height_span, image_size, downsample_size, rf, "20170410_3")
