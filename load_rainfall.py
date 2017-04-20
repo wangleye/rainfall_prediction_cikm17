@@ -11,7 +11,16 @@ db = pymongo.MongoClient().rainfall_sz  # mongodb database
 NUM_TRAIN = 10000
 
 
-def load_training_data(t, height_span, img_size, downsample_size=1, limit=NUM_TRAIN, data_format="channels_last"):
+def load_training_data_sklearn(t, height_span, image_size, downsample_size, limit=NUM_TRAIN):
+    """
+    load training data and make X flat for sklearn learners
+    """
+    training_X, training_Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+    flatten_training_X = training_X.flatten().reshape(len(training_Y), -1)
+    return flatten_training_X, training_Y
+
+
+def load_training_data(t, height_span, img_size, downsample_size, limit=NUM_TRAIN, data_format="channels_last"):
     """
     load training data from the mongo db
 
@@ -21,7 +30,7 @@ def load_training_data(t, height_span, img_size, downsample_size=1, limit=NUM_TR
         limit: the limit of number of training samples (now always reading all the data for the first time and then store to disk)
         img_size: the side length of the image, centered at image centor point
         downsample_size: if > 1, is the downsample size for the image (func: np.max)
-        data_format: channels_first or channels_last
+        data_format: channels_first or channels_last (always set to channels_last in CIKM competition)
 
     return X, y
     """
@@ -37,8 +46,8 @@ def load_training_data(t, height_span, img_size, downsample_size=1, limit=NUM_TR
 
     if Path(cache_file_X).is_file() and Path(cache_file_Y).is_file():
         print("find cached raw data!")
-        train_X = np.load(cache_file_X)
-        train_Y = np.load(cache_file_Y)
+        train_X = list(np.load(cache_file_X))
+        train_Y = list(np.load(cache_file_Y))
 
     else:
         train_X = [0] * NUM_TRAIN
@@ -74,7 +83,20 @@ def load_training_data(t, height_span, img_size, downsample_size=1, limit=NUM_TR
     return train_X[0:limit], train_Y[0:limit]
 
 
-def load_training_data_4_viewpoints(t, height_span, img_size, downsample_size=1, limit=-1):
+def load_training_data_sklearn_4_viewpoints(t, height_span, image_size, downsample_size, limit=NUM_TRAIN):
+    """
+    load training data and change to flatten X
+    """
+    training_Xs, training_Y = load_training_data_4_viewpoints(
+        t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
+    flatten_training_Xs = []
+    for training_X in training_Xs:
+        flatten_training_X = training_X.flatten().reshape(len(training_Y), -1)
+        flatten_training_Xs.append(flatten_training_X)
+    return flatten_training_Xs, training_Y
+
+
+def load_training_data_4_viewpoints(t, height_span, img_size, downsample_size, limit=NUM_TRAIN):
     """
     load training data from the mongo db
     t: time slit no.

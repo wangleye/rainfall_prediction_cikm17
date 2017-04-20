@@ -18,6 +18,7 @@ from sklearn.externals import joblib
 import xgboost as xgb
 import pandas as pd
 from load_rainfall import load_training_data, load_testA_data, load_training_data_4_viewpoints
+from load_rainfall import load_training_data_sklearn, load_training_data_sklearn_4_viewpoints
 from residual_blocks2 import building_residual_block
 from matplotlib import pyplot
 import plotly.plotly as py
@@ -25,7 +26,7 @@ import plotly.graph_objs as go
 
 
 NORM_X = 215.0
-NORM_Y = 60.0
+NORM_Y = 70.0
 
 
 def rmse(Y, Y_pred):
@@ -42,19 +43,19 @@ def CnnModel(input_shape, rweight=0.1):
     our_model.add(Conv2D(256, (5, 5), padding='same', activation='relu'))
     our_model.add(MaxPooling2D(pool_size=(2, 2)))
     our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
-    # our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
+    our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
     our_model.add(MaxPooling2D(pool_size=(2, 2)))
     our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
-    # our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
+    our_model.add(Conv2D(512, (5, 5), padding='same', activation='relu'))
     our_model.add(Flatten())
     our_model.add(Dense(256, kernel_regularizer=regularizers.l2(rweight), activation='relu'))
-    # our_model.add(Dropout(0.3))
     our_model.add(Dense(256, kernel_regularizer=regularizers.l2(rweight), activation='relu'))
+    # our_model.add(Dropout(0.3))
     our_model.add(Dense(256, kernel_regularizer=regularizers.l2(rweight), activation='relu'))    
-    our_model.add(Dropout(0.5))
-    our_model.add(Dense(1, activation='relu'))
+    our_model.add(Dropout(0.4))
+    our_model.add(Dense(1, activation='sigmoid'))
     our_model.compile(loss='mean_squared_error',
-                      optimizer='adam')
+                      optimizer='adadelta')
     return our_model
 
 
@@ -100,7 +101,7 @@ def RnnModel(input_shape, n_channels=1024, rnn_unit=GRU, deep_level=7):
     return our_model
 
 
-def ConvLstmModel(input_shape, deep_level=5, filters=96):
+def ConvLstmModel(input_shape, deep_level=5, filters=64, rweight=0.001):
     """
     convolutional LSTM model
     deep_level: number of levels of conv lstm
@@ -109,27 +110,26 @@ def ConvLstmModel(input_shape, deep_level=5, filters=96):
     our_model.add(ConvLSTM2D(filters=filters, kernel_size=(3, 3),
                              input_shape=input_shape, padding='same',
                              return_sequences=True))
-    our_model.add(BatchNormalization())
     for _ in range(deep_level - 2):
         our_model.add(ConvLSTM2D(filters=filters, kernel_size=(3, 3),
                                  padding='same',
                                  return_sequences=True))
-        our_model.add(BatchNormalization())
     our_model.add(ConvLSTM2D(filters=filters, kernel_size=(3, 3),
                              padding='same',
                              return_sequences=False))
 #    our_model.add(Conv3D(filters=input_shape[-1], kernel_size=(3, 3, 3),
 #                         activation='relu', padding='same'))
     our_model.add(Flatten())
-    our_model.add(Dense(128, activation='relu'))
-    our_model.add(Dropout(0.5))
+    our_model.add(Dense(filters*2, activation='relu', kernel_regularizer=regularizers.l2(rweight)))
+    our_model.add(Dense(filters*2, activation='relu', kernel_regularizer=regularizers.l2(rweight)))
+    our_model.add(Dropout(0.3))
     our_model.add(Dense(1, activation='relu'))
     our_model.compile(loss='mean_squared_error', optimizer='adadelta')
 
     return our_model
 
 
-def StackingConvRNN(input_shape, rnn_level=7, filters=256):
+def StackingConvRNN(input_shape, rnn_level=3, filters=64, rweight=0.1):
     """
     Using Conv network over RNN unit layer
     input_shape: [n_timestep, img_size, img_size, n_channels]
@@ -143,16 +143,13 @@ def StackingConvRNN(input_shape, rnn_level=7, filters=256):
     our_model.add(TimeDistributed(Conv2D(filters, (3, 3), padding='same', activation='relu')))
     our_model.add(TimeDistributed(BatchNormalization()))
     our_model.add(TimeDistributed(MaxPooling2D((2, 2))))
-    our_model.add(TimeDistributed(Conv2D(filters, (3, 3), padding='same', activation='relu')))
-    our_model.add(TimeDistributed(BatchNormalization()))
-    our_model.add(TimeDistributed(MaxPooling2D((2, 2))))
     our_model.add(TimeDistributed(Flatten()))
-    our_model.add(TimeDistributed(Dropout(0.4)))
+    # our_model.add(TimeDistributed(Dropout(0.4)))
     for _ in range(rnn_level):
         our_model.add(GRU(filters, return_sequences=True))
         our_model.add(Dense(filters))
     our_model.add(Flatten())
-    our_model.add(Dense(filters))
+    our_model.add(Dense(filters, kernel_regularizer=regularizers.l2(rweight)))
     our_model.add(Dropout(0.4))
     our_model.add(Dense(1, activation='relu'))
     our_model.compile(loss='mean_squared_error', optimizer='adadelta')
@@ -194,7 +191,7 @@ def augment_training_data(X, Y, image_size, mode):
 def cross_validataion_avg_aggregate(t_span, height_span, image_size, learner, augment, downsample_size, K=5, limit=10000):
     Y_pred_collection = None
     for t in t_span:
-        X, Y = get_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
+        X, Y = load_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
         Y_1D = Y.reshape(-1)
 
         k_fold = KFold(K)
@@ -235,20 +232,22 @@ def cross_validataion_cnn(t_span, height_span, image_size, downsample_size, cnn_
     Y_pred_collection = None
     for t in t_span:
         X, Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
-        X, Y = preprocessing_data(X, Y)
+        X = X/NORM_X
+        Y = Y/NORM_Y
+        # X, Y = preprocessing_data(X, Y)
 
         k_fold = KFold(K)
         Y_pred = np.zeros((len(Y), 1))
         for k, (train, test) in enumerate(k_fold.split(X, Y)):
             reset_weights(cnn_model, initial_weights)
-            if not augment:
-                train_X, train_Y = X[train], Y[train]
-            else:
-                train_X, train_Y = augment_training_data(X[train], Y[train], image_size, mode='image')
+            train_X, train_Y = preprocessing_data(X[train], Y[train])
+            test_X, test_Y = X[test], Y[test]
+            if augment:
+                train_X, train_Y = augment_training_data(train_X, train_Y, image_size, mode='image')
             early_stop = EarlyStopping(monitor='loss', patience=0)
-            cnn_model.fit(train_X, train_Y, batch_size=32, epochs=200, verbose=1, validation_data=(X[test], Y[test]), callbacks=[early_stop, ])
-            Y_pred[test] = cnn_model.predict(X[test]).reshape(-1, 1)
-            print("cv {} rmse: {}".format(k, rmse(Y_pred[test], Y[test])))
+            cnn_model.fit(train_X, train_Y, batch_size=32, epochs=200, verbose=1, validation_data=(test_X, test_Y), callbacks=[early_stop, ])
+            Y_pred[test] = cnn_model.predict(test_X).reshape(-1, 1)
+            print("cv {} rmse: {}".format(k, rmse(Y_pred[test] * NORM_Y, Y[test] * NORM_Y)))
 
         if Y_pred_collection is None:
             Y_pred_collection = Y_pred
@@ -274,14 +273,17 @@ def cross_validataion_convlstm(t_span, height_span, image_size, downsample_size,
         for i in range(limit):
             Xs[i, idx] = X[i]
 
+    Xs = Xs / NORM_X
+    Y = Y / NORM_Y
+
     Y_pred = np.zeros((limit, 1))
     for k, (train, test) in enumerate(k_fold.split(Xs, Y)):
         # reset_weights(convlstm_model, initial_weights)
         convlstm_model.fit(Xs[train], Y[train], batch_size=64, epochs=200, verbose=1, validation_data=(Xs[test], Y[test]))
         Y_pred[test] = convlstm_model.predict(Xs[test]).reshape(-1, 1)
-        print("cv {} rmse: {}".format(k, rmse(Y_pred[test], Y[test])))
+        print("cv {} rmse: {}".format(k, NORM_Y * rmse(Y_pred[test], Y[test])))
 
-    print("overall rmse: {}".format(rmse(Y, Y_pred)))
+    print("overall rmse: {}".format(NORM_Y * rmse(Y, Y_pred)))
 
     return Y_pred, Y
 
@@ -290,15 +292,12 @@ def preprocessing_data(X, Y):
 
     # remove the data with missing X or too large Y (abnormal values)
     neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
-    large_idxs = np.unique(np.argwhere(Y > NORM_Y)[:, 0])
+    large_idxs = np.unique(np.argwhere(Y > 1)[:, 0])
     merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
     mask = np.ones(len(Y), dtype=bool)
     mask[merge_idx] = False
 
-    X = X[mask] / NORM_X
-    Y = Y[mask] / NORM_Y
-
-    return X, Y
+    return X[mask], Y[mask]
 
 
 def cross_validataion_rnn(t_span, height_span, image_size, downsample_size, rnn_model, initial_weights, K=5, limit=10000):
@@ -336,7 +335,7 @@ def time_sensitive_validataion_avg_aggregate(
     """
     Y_pred_collection = None
     for t in t_span:
-        X, Y = get_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
+        X, Y = load_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
         Y_1D = Y.reshape(-1)
         num_of_recs = len(Y_1D)
         train = range(int(num_of_recs * (1 - holdout)))
@@ -378,7 +377,7 @@ def time_sensitive_validataion_avg_aggregate_4_viewpoints(t_span, height_span, i
     """
     Y_pred_collection = None
     for t in t_span:
-        Xs, Y = get_training_data_sklearn_4_viewpoints(
+        Xs, Y = load_training_data_sklearn_4_viewpoints(
             t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=10000)
         Y_1D = Y.reshape(-1)
         num_of_recs = len(Y_1D)
@@ -462,26 +461,10 @@ def output_global_average():
             outputfile.write("{}\n".format(15.5454))
 
 
-def get_training_data_sklearn(t, height_span, image_size, downsample_size, limit=10000):
-    training_X, training_Y = load_training_data(t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
-    flatten_training_X = training_X.flatten().reshape(len(training_Y), -1)
-    return flatten_training_X, training_Y
-
-
-def get_training_data_sklearn_4_viewpoints(t, height_span, image_size, downsample_size, limit=10000):
-    training_Xs, training_Y = load_training_data_4_viewpoints(
-        t=t, height_span=height_span, img_size=image_size, downsample_size=downsample_size, limit=limit)
-    flatten_training_Xs = []
-    for training_X in training_Xs:
-        flatten_training_X = training_X.flatten().reshape(len(training_Y), -1)
-        flatten_training_Xs.append(flatten_training_X)
-    return flatten_training_Xs, training_Y
-
-
 def train_full_avg_rf_model(t_span, height_span, image_size, downsample_size, learner, learner_storage_path):
     for t in t_span:
         print("training t{} h{}...".format(t, height_span))
-        X, Y = get_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=10000)
+        X, Y = load_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=10000)
         Y_1D = Y.reshape(-1)
         learner.fit(X, Y_1D)
         joblib.dump(learner, "{}/t{}h{}size{}.pkl".format(learner_storage_path, t, height_span, image_size))
@@ -579,108 +562,138 @@ def round_circle(X, k):
     return circle
 
 
-def handcraft_features_training(t_span, height_span, limit=10000):
+# def handcraft_features_training(t_span, height_span, limit=10000):
+#     """
+#     hand craft features from data
+#     for each (t, h) and downsample 1, 2, 3 do the following features,
+#     center point
+#     1-circle: avg, median, diff with center, variance
+#     2-circle: ...
+#     ...
+#     5-circle: ...
+
+#     diff features (for time variance)
+#     t[i]-t[i-1]
+#     center point
+#     1-circle: avg-diff, median-diff
+#     2-circle: ...
+#     ...
+#     5-circle: ...
+#     """
+#     image_size = 15
+#     df = pd.DataFrame(np.nan, index=range(limit), columns=[])
+
+#     # spatial features
+#     for t in t_span:
+#         for h in height_span:
+#             for subsample in range(1, 4):
+#                 X, Y = load_training_data(t, [h, ], image_size, subsample, limit)
+#                 column_prefix = "t{}h{}s{}".format(t, h, subsample)
+#                 center_value = center_point_value(X)
+#                 df.loc[:, '{}_{}'.format(column_prefix, 'center')] = center_value
+#                 for k in range(1, 6):
+#                     df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'mean')] = np.mean(round_circle(X, k), axis=1)
+#                     df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'mean_diff_center')] = \
+#                         df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'mean')] - center_value
+#                     df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'median')] = np.median(round_circle(X, k), axis=1)
+#                     df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'median_diff_center')] = \
+#                         df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'median')] - center_value
+#                     df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'std')] = np.std(round_circle(X, k), axis=1)
+
+#     # temporal features:
+#     for i in range(len(t_span) - 1):
+#         for h in height_span:
+#             for subsample in range(1, 4):
+#                 t_0 = t_span[0]
+#                 t_1 = t_span[i + 1]
+#                 column_prefix_t0 = "t{}h{}s{}".format(t_0, h, subsample)
+#                 column_prefix_t1 = "t{}h{}s{}".format(t_1, h, subsample)
+#                 column_prefix_diff = "t{}-{}h{}s{}".format(t_0, t_1, h, subsample)
+#                 df.loc[:, '{}_{}'.format(column_prefix_diff, 'center')] = \
+#                     df.loc[:, '{}_{}'.format(column_prefix_t0, 'center')] - df.loc[:, '{}_{}'.format(column_prefix_t1, 'center')]
+#                 for k in range(1, 6):
+#                     df.loc[:, '{}_k{}_{}'.format(column_prefix_diff, k, 'mean')] = \
+#                         df.loc[:, '{}_k{}_{}'.format(column_prefix_t0, k, 'mean')] - df.loc[:, '{}_k{}_{}'.format(column_prefix_t1, k, 'mean')]
+#                     df.loc[:, '{}_k{}_{}'.format(column_prefix_diff, k, 'median')] = \
+#                         df.loc[:, '{}_k{}_{}'.format(column_prefix_t0, k, 'median')] - df.loc[:, '{}_k{}_{}'.format(column_prefix_t1, k, 'median')]
+
+#     print(df.head())
+#     df.info()
+
+#     # temperal learner from sklearn for text
+#     X_hand = np.array(df)
+#     learner = xgb.XGBRegressor(max_depth=5, learning_rate=0.1, n_estimators=50, min_child_weight=1, subsample=1, colsample_bytree=1)
+#     predicted_Y = cross_val_predict(learner, X_hand, Y.reshape(-1), cv=5).reshape(-1, 1)
+#     print("cv rmse: {}".format(rmse(Y, predicted_Y)))
+
+#     return X_hand, Y
+
+def validation_tool(t_span, height_span, image_size, downsample_size, learner, validation_method, k=5, holdout_ratio=0.1):
     """
-    hand craft features from data
-    for each (t, h) and downsample 1, 2, 3 do the following features,
-    center point
-    1-circle: avg, median, diff with center, variance
-    2-circle: ...
-    ...
-    5-circle: ...
+    Use various learners to do cross or holdout validation
+    
+    ### learner:
+    'rf': random forest
+    'xgb': xgboost
+    'cnn' or 'res'
+    'rnn'
+    'lstm_conv' or 'stack'
 
-    diff features (for time variance)
-    t[i]-t[i-1]
-    center point
-    1-circle: avg-diff, median-diff
-    2-circle: ...
-    ...
-    5-circle: ...
+    ### validation_method
+    'cross' or 'holdout': if 'cross', need to set k; if 'holdout', need to set holdout_ratio
     """
-    image_size = 15
-    df = pd.DataFrame(np.nan, index=range(limit), columns=[])
+    # sklearn models
+    if learner == 'rf' or learner == 'xgb':
+        if learner == 'rf':
+            test_model = ensemble.RandomForestRegressor(n_estimators=100, n_jobs=4)
+        else:
+            test_model = xgb.XGBRegressor(max_depth=5, learning_rate=0.1, n_estimators=50, min_child_weight=1, subsample=1, colsample_bytree=1)
+        if validation_method == 'cross':
+            cross_validataion_avg_aggregate(t_span, height_span, image_size, test_model,
+                                            augment=False, downsample_size=downsample_size, K=k)
+        else:
+            time_sensitive_validataion_avg_aggregate_4_viewpoints(t_span, height_span, image_size, test_model,
+                                                                  augment=False, downsample_size=downsample_size, holdout=holdout_ratio)
+    
+    # cnn like models
+    elif learner == 'cnn' or learner == 'res':
+        if learner == 'cnn':
+            test_model = CnnModel((image_size, image_size, len(height_span)))
+        else:
+            test_model = ResModel((image_size, image_size, len(height_span)))
+        runtime_initial_weights = test_model.get_weights()
+        if validation_method == 'cross':
+            cross_validataion_cnn(t_span, height_span, image_size, downsample_size,
+                                  test_model, runtime_initial_weights, augment=False, K=k)
+        else:
+            
 
-    # spatial features
-    for t in t_span:
-        for h in height_span:
-            for subsample in range(1, 4):
-                X, Y = load_training_data(t, [h, ], image_size, subsample, limit)
-                column_prefix = "t{}h{}s{}".format(t, h, subsample)
-                center_value = center_point_value(X)
-                df.loc[:, '{}_{}'.format(column_prefix, 'center')] = center_value
-                for k in range(1, 6):
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'mean')] = np.mean(round_circle(X, k), axis=1)
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'mean_diff_center')] = \
-                        df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'mean')] - center_value
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'median')] = np.median(round_circle(X, k), axis=1)
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'median_diff_center')] = \
-                        df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'median')] - center_value
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix, k, 'std')] = np.std(round_circle(X, k), axis=1)
 
-    # temporal features:
-    for i in range(len(t_span) - 1):
-        for h in height_span:
-            for subsample in range(1, 4):
-                t_0 = t_span[0]
-                t_1 = t_span[i + 1]
-                column_prefix_t0 = "t{}h{}s{}".format(t_0, h, subsample)
-                column_prefix_t1 = "t{}h{}s{}".format(t_1, h, subsample)
-                column_prefix_diff = "t{}-{}h{}s{}".format(t_0, t_1, h, subsample)
-                df.loc[:, '{}_{}'.format(column_prefix_diff, 'center')] = \
-                    df.loc[:, '{}_{}'.format(column_prefix_t0, 'center')] - df.loc[:, '{}_{}'.format(column_prefix_t1, 'center')]
-                for k in range(1, 6):
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix_diff, k, 'mean')] = \
-                        df.loc[:, '{}_k{}_{}'.format(column_prefix_t0, k, 'mean')] - df.loc[:, '{}_k{}_{}'.format(column_prefix_t1, k, 'mean')]
-                    df.loc[:, '{}_k{}_{}'.format(column_prefix_diff, k, 'median')] = \
-                        df.loc[:, '{}_k{}_{}'.format(column_prefix_t0, k, 'median')] - df.loc[:, '{}_k{}_{}'.format(column_prefix_t1, k, 'median')]
 
-    print(df.head())
-    df.info()
 
-    # temperal learner from sklearn for text
-    X_hand = np.array(df)
-    learner = xgb.XGBRegressor(max_depth=5, learning_rate=0.1, n_estimators=50, min_child_weight=1, subsample=1, colsample_bytree=1)
-    predicted_Y = cross_val_predict(learner, X_hand, Y.reshape(-1), cv=5).reshape(-1, 1)
-    print("cv rmse: {}".format(rmse(Y, predicted_Y)))
 
-    return X_hand, Y
 
 
 if __name__ == "__main__":
     np.random.seed(712)
     backend.set_image_data_format('channels_last')  # explicitly set the channels are in the first dimenstion
 
-    sz_t_span = [14, 13, 12, 11, 10, 9, 8, 7]
+    sz_t_span = [14, 13, 12, 11, 10]
     sz_height_span = [1, ]
     sz_image_size = 24
     sz_downsample_size = 3
 
     # handcraft_features_training(t_span, height_span)
 
-    # avergae aggregation
-    # svr = svm.SVR()
-    # linear_svr = svm.LinearSVR()
-    # rf = ensemble.RandomForestRegressor(n_estimators=100, n_jobs=2)
-    # ert = ensemble.ExtraTreesRegressor(n_estimators=100, n_jobs=2)
-    # gbr = xgb.XGBRegressor(max_depth=5, learning_rate=0.1, n_estimators=50, min_child_weight=1, subsample=1, colsample_bytree=1)
-    # Y_pred_collection, Y = cross_validataion_avg_aggregate(t_span, height_span, image_size, gbr,
-    #                                                        augment=False, downsample_size=downsample_size, limit=10000)
-    # time_sensitive_validataion_avg_aggregate(t_span, height_span, image_size, gbr, augment=False, limit=10000,
-    #                                         downsample_size=downsample_size, residual_adjust=None, holdout=0.2)
-    # time_sensitive_validataion_avg_aggregate_4_viewpoints(t_span, height_span, image_size, gbr, augment=False, downsample_size=2, holdout=0.1)
-
-    # xgb.plot_importance(gbr)
-    # pyplot.show()
-
     # train cnn
-    test_model = CnnModel((sz_image_size, sz_image_size, len(sz_height_span)))
+    # test_model = CnnModel((sz_image_size, sz_image_size, len(sz_height_span)))
     # test_model = ResModel((sz_image_size, sz_image_size, len(sz_height_span)))
-    runtime_initial_weights = test_model.get_weights()
-    cross_validataion_cnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, augment=False, limit=10000)
+    # runtime_initial_weights = test_model.get_weights()
+    # cross_validataion_cnn(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, runtime_initial_weights, augment=False, limit=10000)
 
-    # our_convlstm_model = ConvLstmModel((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
-    # our_stack_model = StackingConvRNN((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
-    # cross_validataion_convlstm(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, our_stack_model, limit=10000)
+    test_model = ConvLstmModel((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
+    # test_model = StackingConvRNN((len(sz_t_span), sz_image_size, sz_image_size, len(sz_height_span)))
+    cross_validataion_convlstm(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, test_model, limit=10000)
 
     # test_model = RnnModel((len(sz_t_span), len(sz_height_span) * sz_image_size * sz_image_size))
     # runtime_initial_weights = test_model.get_weights()
