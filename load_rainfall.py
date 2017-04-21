@@ -46,12 +46,12 @@ def load_training_data(t, height_span, image_size, downsample_size, limit=NUM_TR
 
     if Path(cache_file_X).is_file() and Path(cache_file_Y).is_file():
         print("find cached raw data!")
-        train_X = list(np.load(cache_file_X))
-        train_Y = list(np.load(cache_file_Y))
+        train_X = np.load(cache_file_X)
+        train_Y = np.load(cache_file_Y)
 
     else:
-        train_X = [0] * NUM_TRAIN
-        train_Y = [0] * NUM_TRAIN
+        train_X_list = [0] * NUM_TRAIN
+        train_Y_list = [0] * NUM_TRAIN
 
         for i in range(NUM_TRAIN):
             train_id = 'train_{}'.format(i + 1)
@@ -65,13 +65,13 @@ def load_training_data(t, height_span, image_size, downsample_size, limit=NUM_TR
                     rec_x = block_reduce(image=rec_x, block_size=(downsample_size, downsample_size), func=np.max)
                 idx_low = int(rec_x.shape[0] / 2) - int(image_size / 2)
                 idx_high = int(rec_x.shape[0] / 2) + int((image_size + 1) / 2)
-                train_Y[i] = record['rainfall']
+                train_Y_list[i] = record['rainfall']
                 rec_x = rec_x[idx_low:idx_high, idx_low:idx_high]
                 X.append(rec_x)
-            train_X[i] = np.stack(X)
+            train_X_list[i] = np.stack(X)
 
-        train_X = np.asarray(train_X)
-        train_Y = np.asarray(train_Y).reshape(-1, 1)  # reshape to column vector
+        train_X = np.asarray(train_X_list)
+        train_Y = np.asarray(train_Y_list).reshape(-1, 1)  # reshape to column vector
 
         np.save(cache_file_X, train_X)
         np.save(cache_file_Y, train_Y)
