@@ -673,7 +673,7 @@ def validation_tool(t_span, height_span, image_size, downsample_size, learner, v
     models_rnn = {
         'rnn': RnnModel
     }
-    validation_method = {
+    validation = {
         'sklearn': {
             'cross': cross_validataion_avg_aggregate,
             'holdout': time_sensitive_validataion_avg_aggregate
@@ -691,34 +691,30 @@ def validation_tool(t_span, height_span, image_size, downsample_size, learner, v
     }
     if learner in models_sklern:
         test_model = models_sklern[learner]
-        validation_method['sklearn'][validation_method](t_span, height_span, image_size, test_model,
-                                                        augment=False, downsample_size=downsample_size, test_ratio=test_ratio)
+        validation['sklearn'][validation_method](t_span, height_span, image_size, test_model,
+                                                 augment=False, downsample_size=downsample_size, test_ratio=test_ratio)
     elif learner in models_cnn:
         test_model = models_cnn[learner]((image_size, image_size, len(height_span)))
         initial_weights = test_model.get_weights()
-        validation_method['cnn'][validation_method](t_span, height_span, image_size, downsample_size,
-                                                    test_model, initial_weights, augment=False, test_ratio=test_ratio)
+        validation['cnn'][validation_method](t_span, height_span, image_size, downsample_size,
+                                             test_model, initial_weights, augment=False, test_ratio=test_ratio)
     elif learner in models_rnn_cnn:
         test_model = models_rnn_cnn[learner]((len(t_span), image_size, image_size, len(height_span)))
-        validation_method['rnn+cnn'][validation_method](t_span, height_span, image_size, downsample_size, test_model,
-                                                        test_ratio=test_ratio)
+        validation['rnn+cnn'][validation_method](t_span, height_span, image_size, downsample_size, test_model,
+                                                 test_ratio=test_ratio)
 
     elif learner in models_rnn:
         test_model = models_rnn[learner]((len(t_span), len(height_span) * image_size * image_size))
         initial_weights = test_model.get_weights()
-        validation_method['rnn'][validation_method](t_span, height_span, image_size, downsample_size,
-                                                    test_model, initial_weights, test_ratio)
-
-
-
-
+        validation['rnn'][validation_method](t_span, height_span, image_size, downsample_size,
+                                             test_model, initial_weights, test_ratio)
 
 
 if __name__ == "__main__":
     np.random.seed(712)
     backend.set_image_data_format('channels_last')  # explicitly set the channels are in the first dimenstion
 
-    sz_t_span = [14, 13, 12, 11, 10]
+    sz_t_span = [14, 13, ]
     sz_height_span = [1, ]
     sz_image_size = 24
     sz_downsample_size = 3
