@@ -148,3 +148,34 @@ def load_testA_data(t, height_span, image_size, downsample_size=1, limit=-1):
         test_X[i - 1] = np.stack(X)
     test_X = np.asarray(test_X)
     return test_X
+
+
+def augment_training_data(X, Y, image_size, mode):
+    """
+    for each matrix, random do flip to generate a new data
+    mode: 'flattern' or 'image'
+    """
+    print('data augmentation...')
+    augment_X = np.zeros(X.shape)
+    augment_Y = np.zeros(Y.shape)
+
+    for i, _ in enumerate(Y):
+        ori_feature = X[i].reshape(image_size, image_size, -1)
+        new_feature = np.zeros(ori_feature.shape)
+
+        # do matrix flip to generate new training data
+        for j in range(ori_feature.shape[0]):
+            new_feature[j] = np.flipud(ori_feature[j])
+            new_feature[j] = np.fliplr(ori_feature[j])
+
+        if mode == 'flatten':
+            augment_X[i] = new_feature.reshape(1, -1)
+        elif mode == 'image':
+            augment_X[i] = new_feature
+        augment_Y[i] = Y[i]
+
+        if i % 200 == 0:
+            print("augmenting data {}".format(i), end='\r')
+    print("\naugmenting done!")
+
+    return np.concatenate((X, augment_X)), np.concatenate((Y, augment_Y))
