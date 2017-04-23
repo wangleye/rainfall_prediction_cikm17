@@ -2,22 +2,10 @@
 Predict whether the rainfall is larger than 20 or not
 """
 import numpy as np
-from keras.models import Sequential, load_model
-from keras import backend, regularizers
-from keras.layers.core import Dense, Dropout, Flatten
-from keras.layers.pooling import MaxPooling2D
-from keras.layers.convolutional_recurrent import ConvLSTM2D
-import keras.layers.recurrent as recurrent_unit
-from keras.layers.convolutional import Conv2D
-from keras.layers.wrappers import TimeDistributed
-from keras.layers.normalization import BatchNormalization
-from keras.callbacks import EarlyStopping
 from sklearn.model_selection import KFold
 from sklearn import metrics, ensemble
 import xgboost as xgb
-from load_rainfall import load_training_data, load_testA_data
-from load_rainfall import load_training_data_sklearn, load_training_data_sklearn_4_viewpoints
-from residual_blocks2 import building_residual_block
+from load_rainfall import load_training_data_sklearn
 
 
 def change_y_to_cat(training_y_rainfall):
