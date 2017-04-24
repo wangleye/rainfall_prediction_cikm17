@@ -3,8 +3,9 @@ Predict rainfall for the CIKM 2017 Competition
 """
 import numpy as np
 from sklearn.model_selection import KFold
-from sklearn import metrics, ensemble
+from sklearn import metrics, ensemble, neighbors
 from sklearn.externals import joblib
+from sklearn.decomposition import PCA
 import xgboost as xgb
 # import pandas as pd
 from load_rainfall import load_testA_data, augment_training_data
@@ -22,11 +23,12 @@ def rmse(Y, Y_pred):
     return np.sqrt(metrics.mean_squared_error(Y, Y_pred))
 
 
-def cross_validataion_avg_aggregate(t_span, height_span, image_size, learner, augment, downsample_size, test_ratio=0.2, limit=10000):
+def cross_validataion_avg_aggregate(t_span, height_span, image_size, learner, augment, downsample_size, test_ratio=0.2, data_preprocess=None, limit=10000):
     K = int(1 / test_ratio)
     Y_pred_collection = None
     for t in t_span:
         X, Y = load_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
+        X, Y = preprocessing_data(X, Y, methods=data_preprocess)
         Y_1D = Y.reshape(-1)
 
         k_fold = KFold(K)
@@ -63,16 +65,25 @@ def residual_error_regression(Y_pred_collection, Y, learner):
     return learner
 
 
-def preprocessing_data(X, Y):
-
+def preprocessing_data(X, Y, methods=None):
+    if methods is None:
+        return X, Y
     # remove the data with missing X or too large Y (abnormal values)
-    neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
-    large_idxs = np.unique(np.argwhere(Y > 1)[:, 0])
-    merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
-    mask = np.ones(len(Y), dtype=bool)
-    mask[merge_idx] = False
+    if 'remove_abnormal' in methods:
+        neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
+        large_idxs = np.unique(np.argwhere(Y > 80)[:, 0])
+        merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
+        mask = np.ones(len(Y), dtype=bool)
+        mask[merge_idx] = False
+        X, Y = X[mask], Y[mask]
 
-    return X[mask], Y[mask]
+    if 'pca' in methods:
+        pca = PCA(n_components=30, svd_solver='full')
+        pca.fit(X)
+        print(pca.explained_variance_ratio_)
+        X = pca.transform(X)
+
+    return X, Y
 
 
 def time_sensitive_validataion_avg_aggregate(
@@ -295,16 +306,14 @@ def round_circle(X, k):
 
 #     return X_hand, Y
 
-def validation_tool(t_span, height_span, image_size, downsample_size, learner, validation_method, test_ratio=0.2):
+def validation_tool(t_span, height_span, image_size, downsample_size, learner, validation_method, test_ratio=0.2, data_preprocess=None):
     """
     Use various learners to do cross or holdout validation
     
     ### learner:
     'rf': random forest
     'xgb': xgboost
-    'cnn' or 'res'
-    'rnn'
-    'lstm_conv' or 'stack'
+    'knn': k nearest neighbors
 
     ### validation_method
     'cross' or 'holdout'
@@ -315,7 +324,8 @@ def validation_tool(t_span, height_span, image_size, downsample_size, learner, v
     # sklearn models
     models_sklern = {
         'rf': ensemble.RandomForestRegressor(n_estimators=100, n_jobs=4),
-        'xgb': xgb.XGBRegressor(max_depth=5, learning_rate=0.1, n_estimators=50, min_child_weight=1, subsample=1, colsample_bytree=1)
+        'xgb': xgb.XGBRegressor(max_depth=5, learning_rate=0.1, n_estimators=50, min_child_weight=1, subsample=1, colsample_bytree=1),
+        'knn': neighbors.KNeighborsRegressor(n_neighbors=300, weights='distance')
     }
     validation = {
         'sklearn': {
@@ -326,7 +336,8 @@ def validation_tool(t_span, height_span, image_size, downsample_size, learner, v
     if learner in models_sklern:
         test_model = models_sklern[learner]
         validation['sklearn'][validation_method](t_span, height_span, image_size, test_model,
-                                                 augment=False, downsample_size=downsample_size, test_ratio=test_ratio)
+                                                 augment=False, downsample_size=downsample_size,
+                                                 test_ratio=test_ratio, data_preprocess=data_preprocess)
 
 
 if __name__ == "__main__":
@@ -337,7 +348,7 @@ if __name__ == "__main__":
     sz_image_size = 24
     sz_downsample_size = 3
 
-    validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'cnn', 'cross')
+    validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'knn', 'cross', data_preprocess=['pca'])
 
     # output trained model for test
     # train_full_avg_rf_model(t_span, height_span, image_size, downsample_size, rf, "20170410_3")
