@@ -13,12 +13,10 @@ from keras.layers.wrappers import TimeDistributed
 from keras.layers.normalization import BatchNormalization
 from keras.callbacks import EarlyStopping
 from sklearn.model_selection import KFold
+from sklearn import metrics
 from load_rainfall import load_training_data, load_testA_data
-from residual_blocks2 import building_residual_block
 from load_rainfall import augment_training_data
-# from matplotlib import pyplot
-# import plotly.plotly as py
-# import plotly.graph_objs as go
+from residual_blocks2 import building_residual_block
 
 
 NORM_X = 215.0
@@ -349,8 +347,6 @@ def validation_tool(t_span, height_span, image_size, downsample_size, learner, v
     Use various learners to do cross or holdout validation
     
     ### learner:
-    'rf': random forest
-    'xgb': xgboost
     'cnn' or 'res'
     'rnn'
     'lstm_conv' or 'stack'
