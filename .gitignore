@@ -90,3 +90,6 @@ ENV/
 
 # not upload data files
 cached_training_data
+*.pkl
+submissions
+*.csv
