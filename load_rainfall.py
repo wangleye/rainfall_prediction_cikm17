@@ -110,15 +110,15 @@ def load_training_data_4_viewpoints(t, height_span, image_size, downsample_size,
         t, height_span, image_size, downsample_size, limit))
     train_X, train_Y = load_training_data(t, height_span, image_size, downsample_size, limit)
     cut_point = int(image_size * 2.0 / 3.0)
-    train_X1 = train_X[:, :, 0:cut_point, 0:cut_point]  # left up viewpoint
-    train_X2 = train_X[:, :, (image_size - cut_point):, 0:cut_point]  # left down viewpoint
-    train_X3 = train_X[:, :, 0:cut_point, (image_size - cut_point):]  # right up viewpoint
-    train_X4 = train_X[:, :, (image_size - cut_point):, (image_size - cut_point):]  # right down viewpoint
+    train_X1 = train_X[:, 0:cut_point, 0:cut_point, :]  # left up viewpoint
+    train_X2 = train_X[:, (image_size - cut_point):, 0:cut_point, :]  # left down viewpoint
+    train_X3 = train_X[:, 0:cut_point, (image_size - cut_point):, :]  # right up viewpoint
+    train_X4 = train_X[:, (image_size - cut_point):, (image_size - cut_point):, :]  # right down viewpoint
 
     return [train_X1, train_X2, train_X3, train_X4], train_Y
 
 
-def load_testA_data(t, height_span, image_size, downsample_size=1, limit=-1):
+def load_testA_data(t, height_span, image_size, downsample_size=1, limit=-1, data_format="channels_last"):
     """
     load training data from the mongo db
     t: time slit no.
@@ -147,6 +147,11 @@ def load_testA_data(t, height_span, image_size, downsample_size=1, limit=-1):
             X.append(rec_x)
         test_X[i - 1] = np.stack(X)
     test_X = np.asarray(test_X)
+
+    if data_format == 'channels_last':
+        print("change channels to last")
+        test_X = np.moveaxis(test_X, 1, -1)  # move height dimension to the last position
+
     return test_X
 
 

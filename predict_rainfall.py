@@ -15,10 +15,6 @@ from load_rainfall import load_training_data_sklearn, load_training_data_sklearn
 # import plotly.graph_objs as go
 
 
-NORM_X = 215.0
-NORM_Y = 70.0
-
-
 def rmse(Y, Y_pred):
     return np.sqrt(metrics.mean_squared_error(Y, Y_pred))
 
@@ -71,14 +67,14 @@ def preprocessing_data(X, Y, methods=None):
     # remove the data with missing X or too large Y (abnormal values)
     if 'remove_abnormal' in methods:
         neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
-        large_idxs = np.unique(np.argwhere(Y > 80)[:, 0])
+        large_idxs = np.unique(np.argwhere(Y > 70)[:, 0])
         merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
         mask = np.ones(len(Y), dtype=bool)
         mask[merge_idx] = False
         X, Y = X[mask], Y[mask]
 
     if 'pca' in methods:
-        pca = PCA(n_components=30, svd_solver='full')
+        pca = PCA(n_components=0.95, svd_solver='full')
         pca.fit(X)
         print(pca.explained_variance_ratio_)
         X = pca.transform(X)
@@ -87,7 +83,7 @@ def preprocessing_data(X, Y, methods=None):
 
 
 def time_sensitive_validataion_avg_aggregate(
-        t_span, height_span, image_size, learner, augment, downsample_size, residual_adjust=None, test_ratio=0.2, limit=10000):
+        t_span, height_span, image_size, learner, augment, downsample_size, test_ratio=0.2, data_preprocess=None, limit=10000):
     """
     use the first part of training data for training and the last part of the data for validation
     holdout is the percentage of the validation part
@@ -95,6 +91,7 @@ def time_sensitive_validataion_avg_aggregate(
     Y_pred_collection = None
     for t in t_span:
         X, Y = load_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
+        X, Y = preprocessing_data(X, Y, methods=data_preprocess)
         Y_1D = Y.reshape(-1)
         num_of_recs = len(Y_1D)
         train = range(int(num_of_recs * (1 - test_ratio)))
@@ -115,21 +112,13 @@ def time_sensitive_validataion_avg_aggregate(
         print("t:{} h:{} rmse:{}".format(t, height_span, rmse(Y[test], Y_pred)))
         print("avg rmse:{}".format(rmse(Y[test], avg_Y_pred)))
 
-    if residual_adjust is not None:
-        residual_Y_pred = Y_pred_collection - avg_Y_pred
-        residual_adjust_amount = residual_adjust.predict(residual_Y_pred).reshape(-1, 1)
-        print(residual_adjust_amount.shape)
-        adjust_avg_Y_pred = avg_Y_pred + residual_adjust_amount
-        print("adjusted avg rmse:{}".format(rmse(Y[test], adjust_avg_Y_pred)))
-        print(avg_Y_pred)
-        print(residual_adjust_amount)
-
     np.savetxt("result_cache.txt", np.concatenate((Y[test], avg_Y_pred, Y_pred_collection), axis=1), fmt="%.5f")
 
     return avg_Y_pred, Y[test]
 
 
-def time_sensitive_validataion_avg_aggregate_4_viewpoints(t_span, height_span, image_size, learner, augment, downsample_size, holdout=0.1):
+def time_sensitive_validataion_avg_aggregate_4_viewpoints(
+        t_span, height_span, image_size, learner, augment, downsample_size, test_ratio=0.2, data_preprocess=None, limit=10000):
     """
     use the first part of training data for training and the last part of the data for validation
     holdout is the percentage of the validation part
@@ -137,13 +126,14 @@ def time_sensitive_validataion_avg_aggregate_4_viewpoints(t_span, height_span, i
     Y_pred_collection = None
     for t in t_span:
         Xs, Y = load_training_data_sklearn_4_viewpoints(
-            t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=10000)
+            t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=limit)
         Y_1D = Y.reshape(-1)
         num_of_recs = len(Y_1D)
-        train = range(int(num_of_recs * (1 - holdout)))
-        test = range(int(num_of_recs * (1 - holdout)), num_of_recs)
+        train = range(int(num_of_recs * (1 - test_ratio)))
+        test = range(int(num_of_recs * (1 - test_ratio)), num_of_recs)
         Y_pred_4_viewpoints = np.zeros((len(test), 4))
         for idx, X in enumerate(Xs):
+            X, _ = preprocessing_data(X, Y, methods=data_preprocess)
             if not augment:
                 learner.fit(X[train], Y_1D[train])
             else:
@@ -170,10 +160,11 @@ def output_global_average():
             outputfile.write("{}\n".format(15.5454))
 
 
-def train_full_avg_rf_model(t_span, height_span, image_size, downsample_size, learner, learner_storage_path):
+def train_full_avg_rf_model(t_span, height_span, image_size, downsample_size, data_preprocess, learner, learner_storage_path):
     for t in t_span:
         print("training t{} h{}...".format(t, height_span))
         X, Y = load_training_data_sklearn(t=t, height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=10000)
+        X, Y = preprocessing_data(X, Y, data_preprocess)
         Y_1D = Y.reshape(-1)
         learner.fit(X, Y_1D)
         joblib.dump(learner, "{}/t{}h{}size{}.pkl".format(learner_storage_path, t, height_span, image_size))
@@ -330,7 +321,8 @@ def validation_tool(t_span, height_span, image_size, downsample_size, learner, v
     validation = {
         'sklearn': {
             'cross': cross_validataion_avg_aggregate,
-            'holdout': time_sensitive_validataion_avg_aggregate
+            'holdout': time_sensitive_validataion_avg_aggregate,
+            'holdout_4_view': time_sensitive_validataion_avg_aggregate_4_viewpoints
         }
     }
     if learner in models_sklern:
@@ -343,19 +335,20 @@ def validation_tool(t_span, height_span, image_size, downsample_size, learner, v
 if __name__ == "__main__":
     np.random.seed(712)
 
-    sz_t_span = [14, 13, ]
-    sz_height_span = [1, ]
-    sz_image_size = 24
+    sz_t_span = [14, 13, 12, ]
+    sz_height_span = [0, 1, ]
+    sz_image_size = 21
     sz_downsample_size = 3
 
-    validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'knn', 'cross', data_preprocess=['pca'])
+    # validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'rf', 'holdout_4_view', data_preprocess=None)
 
     # output trained model for test
-    # train_full_avg_rf_model(t_span, height_span, image_size, downsample_size, rf, "20170410_3")
+    # rf = ensemble.RandomForestRegressor(n_estimators=100)
+    # train_full_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, ['remove_abnormal'], rf, "20170426")
     # train_full_cnn_model(t_span, height_span, image_size, downsample_size, res_model, initial_weights, "20170411_resnet")
 
     # run test
-    # load_and_test_avg_rf_model(t_span, height_span, image_size, downsample_size, "20170410_3")
+    load_and_test_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, "20170426")
     # load_and_test_cnn_model(t_span, height_span, image_size, downsample_size, "20170411_resnet")
 
     # =================== following are some validation results ==========================
