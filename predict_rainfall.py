@@ -64,13 +64,14 @@ def residual_error_regression(Y_pred_collection, Y, learner):
 def preprocessing_data(X, Y, methods=None):
     if methods is None:
         return X, Y
+
     # remove the data with missing X or too large Y (abnormal values)
     if 'remove_abnormal' in methods:
-        neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
+        # neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
         large_idxs = np.unique(np.argwhere(Y > 70)[:, 0])
-        merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
+        # merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
         mask = np.ones(len(Y), dtype=bool)
-        mask[merge_idx] = False
+        mask[large_idxs] = False
         X, Y = X[mask], Y[mask]
 
     if 'pca' in methods:
@@ -343,12 +344,12 @@ if __name__ == "__main__":
     # validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'rf', 'holdout_4_view', data_preprocess=None)
 
     # output trained model for test
-    # rf = ensemble.RandomForestRegressor(n_estimators=100)
-    # train_full_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, ['remove_abnormal'], rf, "20170426")
+    rf = ensemble.RandomForestRegressor(n_estimators=100)
+    train_full_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, ['remove_abnormal'], rf, "20170426_2")
     # train_full_cnn_model(t_span, height_span, image_size, downsample_size, res_model, initial_weights, "20170411_resnet")
 
     # run test
-    load_and_test_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, "20170426")
+    load_and_test_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, "20170426_2")
     # load_and_test_cnn_model(t_span, height_span, image_size, downsample_size, "20170411_resnet")
 
     # =================== following are some validation results ==========================
