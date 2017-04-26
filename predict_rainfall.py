@@ -80,6 +80,13 @@ def preprocessing_data(X, Y, methods=None):
         print(pca.explained_variance_ratio_)
         X = pca.transform(X)
 
+    if 'enhance_X' in methods:
+        mean_X = np.mean(X, axis=1, keepdims=True)
+        variance_X = np.var(X, axis=1, keepdims=True)
+        small_X = np.count_nonzero(X < 10, axis=1).reshape(-1, 1)
+        large_X = np.count_nonzero(X > 100, axis=1).reshape(-1, 1)
+        X = np.concatenate((X, mean_X, variance_X, small_X, large_X), axis=1)
+
     return X, Y
 
 
@@ -341,15 +348,15 @@ if __name__ == "__main__":
     sz_image_size = 21
     sz_downsample_size = 3
 
-    # validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'rf', 'holdout_4_view', data_preprocess=None)
+    validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'rf', 'holdout_4_view', data_preprocess=["remove_abnormal", "enhance_X"])
 
     # output trained model for test
-    rf = ensemble.RandomForestRegressor(n_estimators=100)
-    train_full_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, ['remove_abnormal'], rf, "20170426_2")
+    # rf = ensemble.RandomForestRegressor(n_estimators=100)
+    # train_full_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, ['remove_abnormal'], rf, "20170426_2")
     # train_full_cnn_model(t_span, height_span, image_size, downsample_size, res_model, initial_weights, "20170411_resnet")
 
     # run test
-    load_and_test_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, "20170426_2")
+    # load_and_test_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, "20170426_2")
     # load_and_test_cnn_model(t_span, height_span, image_size, downsample_size, "20170411_resnet")
 
     # =================== following are some validation results ==========================
