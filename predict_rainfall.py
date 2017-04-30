@@ -2,6 +2,7 @@
 Predict rainfall for the CIKM 2017 Competition
 """
 import numpy as np
+from scipy.stats import entropy
 from sklearn.model_selection import KFold
 from sklearn import metrics, ensemble, neighbors
 from sklearn.externals import joblib
@@ -67,11 +68,11 @@ def preprocessing_data(X, Y, methods=None):
 
     # remove the data with missing X or too large Y (abnormal values)
     if 'remove_abnormal' in methods:
-        # neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
+        neg_idxs = np.unique(np.argwhere(X < 0)[:, 0])
         large_idxs = np.unique(np.argwhere(Y > 70)[:, 0])
-        # merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
+        merge_idx = np.unique(np.concatenate((neg_idxs, large_idxs)))
         mask = np.ones(len(Y), dtype=bool)
-        mask[large_idxs] = False
+        mask[merge_idx] = False
         X, Y = X[mask], Y[mask]
 
     if 'pca' in methods:
@@ -178,11 +179,12 @@ def train_full_avg_rf_model(t_span, height_span, image_size, downsample_size, da
         joblib.dump(learner, "{}/t{}h{}size{}.pkl".format(learner_storage_path, t, height_span, image_size))
 
 
-def load_and_test_avg_rf_model(t_span, height_span, image_size, downsample_size, learner_storage_path):
+def load_and_test_avg_rf_model(t_span, height_span, image_size, downsample_size, data_preprocess, learner_storage_path):
     test_y_collection = None
     for t in t_span:
         print("testing t{} h{}...".format(t, height_span))
         X = get_testA_data_sklearn(t_span=(t,), height_span=height_span, image_size=image_size, downsample_size=downsample_size, limit=2000)
+        X, _ = preprocessing_data(X, None, data_preprocess)
         learner = joblib.load("{}/t{}h{}size{}.pkl".format(learner_storage_path, t, height_span, image_size))
         y = learner.predict(X).reshape(-1, 1)
         print(y)
@@ -346,17 +348,17 @@ if __name__ == "__main__":
     sz_t_span = [14, 13, 12, ]
     sz_height_span = [0, 1, ]
     sz_image_size = 21
-    sz_downsample_size = 3
+    sz_downsample_size = 4
 
-    validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'rf', 'holdout_4_view', data_preprocess=["remove_abnormal", "enhance_X"])
+    # validation_tool(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, 'rf', 'cross', data_preprocess=["remove_abnormal", "enhance_X"])
 
     # output trained model for test
-    # rf = ensemble.RandomForestRegressor(n_estimators=100)
-    # train_full_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, ['remove_abnormal'], rf, "20170426_2")
+    rf = ensemble.RandomForestRegressor(n_estimators=100, n_jobs=4)
+    train_full_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, ['remove_abnormal', 'enhance_X'], rf, "20170427_2")
     # train_full_cnn_model(t_span, height_span, image_size, downsample_size, res_model, initial_weights, "20170411_resnet")
 
     # run test
-    # load_and_test_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, "20170426_2")
+    load_and_test_avg_rf_model(sz_t_span, sz_height_span, sz_image_size, sz_downsample_size, ['enhance_X'], "20170427_2")
     # load_and_test_cnn_model(t_span, height_span, image_size, downsample_size, "20170411_resnet")
 
     # =================== following are some validation results ==========================
